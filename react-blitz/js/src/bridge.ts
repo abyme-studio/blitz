@@ -39,6 +39,8 @@ export interface Bridge {
   attr(id: number, name: string): string | null;
   /** The ids of an adopted node's children. */
   children(id: number): number[];
+  /** The page's address, as `location.href`. */
+  address(): string;
   /** Whether the window has focus. */
   hasFocus(): boolean;
   /** A message to the host's log. */
