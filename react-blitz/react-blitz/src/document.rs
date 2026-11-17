@@ -13,6 +13,7 @@ use crate::events::ReactEventHandler;
 use crate::frame;
 use crate::host::{Host, Shared};
 use crate::loader::{DistLoader, ModuleSource};
+use crate::net::FileNetProvider;
 
 /// A built page to open: its folder, the HTML file in it, and the query its address carries.
 pub struct ReactDocumentConfig {
@@ -33,7 +34,8 @@ pub struct ReactDocument<E: ScriptEngine> {
 }
 
 impl<E: ScriptEngine> ReactDocument<E> {
-    /// Parse the page's HTML (Blitz loads its stylesheets), give the engine the host calls, and run
+    /// Parse the page's HTML (its stylesheets are read from the build's folder unless the config
+    /// names a net provider), give the engine the host calls, and run
     /// the page's module script.
     pub fn open(config: ReactDocumentConfig, mut engine: E) -> anyhow::Result<Self> {
         let loader = DistLoader::new(&config.dist)?;
@@ -43,6 +45,9 @@ impl<E: ScriptEngine> ReactDocument<E> {
 
         let mut document = config.document;
         document.base_url = Some(page_url.clone());
+        if document.net_provider.is_none() {
+            document.net_provider = Some(FileNetProvider::shared());
+        }
         let mut doc = BaseDocument::new(document);
         {
             let mut m = doc.mutate();
