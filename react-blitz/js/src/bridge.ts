@@ -68,6 +68,24 @@ export function flush(): void {
   if (encoder.empty) return;
   const { ops, strings } = encoder.take();
   bridge().commit(ops, strings);
+  if (hearers.size && !telling) {
+    telling = true;
+    queueMicrotask(tell);
+  }
+}
+
+const hearers = new Set<() => void>();
+let telling = false;
+
+function tell(): void {
+  telling = false;
+  for (const fn of [...hearers]) fn();
+}
+
+/** Hear, once a task, that ops went to the host: a React commit, or DOM writes outside one. */
+export function onSent(fn: () => void): () => void {
+  hearers.add(fn);
+  return () => void hearers.delete(fn);
 }
 
 /** Ops written outside a React commit (a library's DOM call, a passive effect's drop) go at the
