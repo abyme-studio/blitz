@@ -1,0 +1,21 @@
+# The fork's own workspace. Cargo stops at the first [workspace] it finds walking up, so these
+# crates belong here and upstream's root workspace never lists them. Blitz's crates are taken by path.
+[workspace]
+members = ["blitz-commit"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+edition = "2024"
+rust-version = "1.91.0"
+publish = false
+
+[workspace.dependencies]
+blitz-dom = { path = "../packages/blitz-dom", default-features = false }
+blitz-html = { path = "../packages/blitz-html", default-features = false }
+blitz-traits = { path = "../packages/blitz-traits", default-features = false }
+blitz-paint = { path = "../packages/blitz-paint", default-features = false }
+blitz-shell = { path = "../packages/blitz-shell", default-features = false }
+blitz-test-harness = { path = "../packages/blitz-test-harness" }
+blitz-commit = { path = "blitz-commit" }
