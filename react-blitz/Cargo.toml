@@ -1,7 +1,7 @@
 # The fork's own workspace. Cargo stops at the first [workspace] it finds walking up, so these
 # crates belong here and upstream's root workspace never lists them. Blitz's crates are taken by path.
 [workspace]
-members = ["blitz-commit"]
+members = ["blitz-commit", "react-blitz", "react-blitz-v8"]
 resolver = "2"
 
 [workspace.package]
