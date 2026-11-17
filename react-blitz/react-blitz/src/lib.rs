@@ -8,6 +8,7 @@ mod events;
 mod frame;
 mod host;
 mod loader;
+mod net;
 
 pub use document::{ReactDocument, ReactDocumentConfig};
 pub use host::Host;
@@ -15,3 +16,4 @@ pub use engine::{EventFlags, HostCalls, ScriptEngine};
 pub use events::EVENT_TYPES;
 pub use host::{HostState, Shared};
 pub use loader::{DistLoader, ModuleSource};
+pub use net::FileNetProvider;
