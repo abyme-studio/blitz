@@ -1,0 +1,33 @@
+{
+  "name": "react-blitz",
+  "version": "0.1.0",
+  "description": "React drawn by Blitz: one batch of ops per commit, events back one at a time, and the DOM subset its nodes answer.",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./dom": "./src/dom.ts",
+    "./host": "./src/host.ts",
+    "./install": "./src/install.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react-reconciler": "0.34.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.2.0",
+    "@types/react-reconciler": "^0.32.0",
+    "react": "19.3.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
