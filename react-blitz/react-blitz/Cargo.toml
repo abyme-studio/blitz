@@ -15,4 +15,5 @@ blitz-traits = { workspace = true }
 anyhow = "1"
 serde_json = "1"
 url = "2"
+data-url = "0.3.1"
 keyboard-types = "0.8"
