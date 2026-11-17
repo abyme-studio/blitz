@@ -1,7 +1,7 @@
 // react-blitz/host: the host calls. `@abyme/host`'s native half and the DOM-shaped members of
 // react-blitz's nodes both call these, so each has one owner. Reads flush the ops written so far,
 // so a style write and a read in one task see the new layout.
-import { read } from "./bridge";
+import { onSent, read } from "./bridge";
 import { BlitzElement, BlitzNode, BlitzRect, BlitzText, cssName, nodes } from "./node";
 
 /** The node the host calls `id`, made when JS has not seen it (a node of the page's own). */
@@ -188,6 +188,22 @@ export function observeSize(el: BlitzNode, fn: (e: SizeEntry) => void): () => vo
 /** Hear each change of whether an element shows in the viewport, the first in the next frame. */
 export function observeVisible(el: BlitzNode, fn: (e: VisibleEntry) => void): () => void {
   return watch(visibleWatchers, "visible", el, fn);
+}
+
+/** What a change watch hears: the element watched. react-blitz does not say what changed. */
+export interface ChangeRecord {
+  type: "childList";
+  target: BlitzNode;
+  addedNodes: BlitzNode[];
+  removedNodes: BlitzNode[];
+}
+
+/** Hear that the tree may have changed under `el`: once a task in which ops went to the host, while
+ * `el` is in the document. Coarser than a MutationObserver, which says what changed and where. */
+export function observeChanges(el: BlitzNode, fn: (records: ChangeRecord[]) => void): () => void {
+  return onSent(() => {
+    if (el.isConnected) fn([{ type: "childList", target: el, addedNodes: [], removedNodes: [] }]);
+  });
 }
 
 let frameCallbacks = new Map<number, (t: number) => void>();
