@@ -1,0 +1,18 @@
+[package]
+name = "react-blitz"
+description = "ReactDocument: Blitz's Document over a BaseDocument and a JS engine running React"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+blitz-commit = { workspace = true }
+blitz-dom = { workspace = true, features = ["system-fonts", "svg", "woff"] }
+blitz-html = { workspace = true }
+blitz-traits = { workspace = true }
+anyhow = "1"
+serde_json = "1"
+url = "2"
+keyboard-types = "0.8"
