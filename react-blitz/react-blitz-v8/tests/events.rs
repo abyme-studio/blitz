@@ -54,3 +54,11 @@ fn a_style_write_then_a_rect_read_gives_the_new_size() {
     settle(&mut page);
     assert_eq!(page.text_content("#read"), "read 250");
 }
+
+#[test]
+fn a_mutation_observer_hears_a_commit() {
+    let mut page = common::open("events");
+    page.click("#count");
+    settle(&mut page);
+    assert_eq!(page.text_content("#heard"), "heard clicks 1", "the MutationObserver heard nothing of the click's commit");
+}
