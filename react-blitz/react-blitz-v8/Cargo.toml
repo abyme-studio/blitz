@@ -1,0 +1,24 @@
+[package]
+name = "react-blitz-v8"
+description = "V8, through deno_core, behind react-blitz's ScriptEngine"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+react-blitz = { path = "../react-blitz" }
+deno_core = "0.412.0"
+deno_error = "0.7.1"
+tokio = { version = "1.47.1", features = ["rt", "time"] }
+anyhow = "1"
+serde = "1"
+url = "2"
+getrandom = "0.3"
+
+[dev-dependencies]
+blitz-dom = { workspace = true }
+blitz-traits = { workspace = true }
+blitz-test-harness = { workspace = true }
+keyboard-types = "0.8"
