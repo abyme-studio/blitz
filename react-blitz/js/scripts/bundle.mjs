@@ -1,8 +1,8 @@
 // Bundle a test page for react-blitz's engine tests: `node scripts/bundle.mjs <page dir> <out dir>`.
-// The page dir holds index.html and app.tsx; the out dir gets index.html and app.js, React and
+// The page dir holds index.html and app.tsx; the out dir gets app.js and the page's other files, React and
 // react-blitz bundled in, react-blitz/install first.
 import { build } from "esbuild";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,4 +33,7 @@ await build({
   },
   logLevel: "warning",
 });
-copyFileSync(join(page, "index.html"), join(out, "index.html"));
+// index.html and whatever else the page holds (stylesheets, fonts), beside the bundle.
+for (const file of readdirSync(page)) {
+  if (!/\.tsx?$/.test(file)) copyFileSync(join(page, file), join(out, file));
+}
