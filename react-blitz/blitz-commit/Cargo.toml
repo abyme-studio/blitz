@@ -1,0 +1,17 @@
+[package]
+name = "blitz-commit"
+description = "The wire format of one React commit, decoded and applied to a Blitz document"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+blitz-dom = { workspace = true }
+
+[dev-dependencies]
+blitz-test-harness = { workspace = true }
+blitz-html = { workspace = true }
+blitz-dom = { workspace = true, features = ["system-fonts"] }
+style = { version = "0.24.0", package = "stylo" }
