@@ -1,0 +1,3 @@
+# Share build output with upstream's workspace, so Blitz's crates build once.
+[build]
+target-dir = "../target"
