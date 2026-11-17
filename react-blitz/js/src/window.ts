@@ -51,13 +51,20 @@ export class IntersectionObserver {
   }
 }
 
-/** A MutationObserver that hears nothing yet: React owns the tree, and Radix's uses are for
- * changes outside React's commits. */
+/** A MutationObserver over host.observeChanges: called once a task in which the tree may have
+ * changed, with one record naming the element watched, whatever its options. */
 export class MutationObserver {
-  constructor(_fn: unknown) {}
-  observe(): void {}
-  disconnect(): void {}
-  takeRecords(): unknown[] {
+  private stops = new Map<BlitzNode, () => void>();
+  constructor(private readonly fn: (records: host.ChangeRecord[], o: MutationObserver) => void) {}
+  observe(el: BlitzNode, _opts?: unknown): void {
+    if (this.stops.has(el)) return;
+    this.stops.set(el, host.observeChanges(el, (records) => this.fn(records, this)));
+  }
+  disconnect(): void {
+    for (const stop of this.stops.values()) stop();
+    this.stops.clear();
+  }
+  takeRecords(): host.ChangeRecord[] {
     return [];
   }
 }
