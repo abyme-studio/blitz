@@ -686,6 +686,7 @@ impl LayoutPartialTree for LayoutPassState<'_> {
         inputs: taffy::LayoutInput,
     ) -> taffy::LayoutOutput {
         compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
+            tree.doc.resolve_stats.layout_nodes += 1;
             tree.compute_child_layout_internal(node_id, inputs, None)
         })
     }
