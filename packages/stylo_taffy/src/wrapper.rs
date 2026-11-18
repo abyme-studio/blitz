@@ -210,17 +210,12 @@ impl<T: Deref<Target = ComputedValues>> taffy::CoreStyle for TaffyStyloStyle<T> 
 
     #[inline]
     fn overflow(&self) -> taffy::Point<taffy::Overflow> {
-        let box_styles = self.style.get_box();
-        let overflow = taffy::Point {
-            x: convert::overflow(box_styles.overflow_x),
-            y: convert::overflow(box_styles.overflow_y),
-        };
-        self.layout_wm().logical_point(overflow)
+        self.layout_wm().logical_point(convert::overflow_and_gutter(&*self.style).0)
     }
 
     #[inline]
     fn scrollbar_width(&self) -> f32 {
-        0.0
+        convert::overflow_and_gutter(&*self.style).1
     }
 
     #[inline]
