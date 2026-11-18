@@ -2418,13 +2418,15 @@ impl BaseDocument {
             return rects.reduce(BoundingRect::union);
         }
 
-        self.get_node(node_id)?;
+        let node = self.get_node(node_id)?;
         let (pos, layout) = self.physical_unrounded_geometry(node_id);
         let size = layout.size;
+        // A scroll container's own offset moves its content, not its box
+        let own_scroll = *node.scroll_offset();
 
         Some(BoundingRect {
-            x: snap_to_layout_unit(pos.x as f64 - self.viewport_scroll().x),
-            y: snap_to_layout_unit(pos.y as f64 - self.viewport_scroll().y),
+            x: snap_to_layout_unit(pos.x as f64 + own_scroll.x - self.viewport_scroll().x),
+            y: snap_to_layout_unit(pos.y as f64 + own_scroll.y - self.viewport_scroll().y),
             width: snap_to_layout_unit(size.width as f64),
             height: snap_to_layout_unit(size.height as f64),
         })
