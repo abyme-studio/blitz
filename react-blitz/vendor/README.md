@@ -17,5 +17,8 @@ taken comes off; a folder with no fixes left is deleted with its patch line.
   (`container: page / inline-size`) parses under the same pref. Upstream has it for Gecko alone,
   so a container named by the shorthand was no container, and its `@container page` rules never
   applied.
+- `properties/longhands.toml`: `scrollbar-gutter` is a property of the servo build too. Upstream
+  has it for Gecko alone. stylo_taffy reads it under its `scrollbar-gutter` feature
+  (`fix/scrollbar-gutter`), which `react-blitz` turns on.
 
 To see the fixes: `diff -r ~/.cargo/registry/src/*/stylo-0.24.0 vendor/stylo`.
