@@ -75,40 +75,49 @@ impl BaseDocument {
         // accumulated since the last resolve as a single device rebuild.
         self.flush_pending_device_changes();
 
-        // we need to resolve stylist first since it will need to drive our layout bits
-        self.resolve_stylist(current_time_for_animations);
-        timer.record_time("style");
+        // Style, then layout; and again while a layout changes the size of a query container,
+        // whose descendants were styled against its last size. Three passes at most: a
+        // container whose size depends on its own queries does not settle.
+        for _pass in 0..3 {
+            // we need to resolve stylist first since it will need to drive our layout bits
+            self.resolve_stylist(current_time_for_animations);
+            timer.record_time("style");
 
-        // Non-incremental mode is "every node is damaged every frame": mark the
-        // whole tree and let the same damage pipeline reconstruct and relayout
-        // everything.
-        if !self.incremental_layout {
-            self.mark_all_damaged();
-            timer.record_time("mark_all");
+            // Non-incremental mode is "every node is damaged every frame": mark the
+            // whole tree and let the same damage pipeline reconstruct and relayout
+            // everything.
+            if !self.incremental_layout {
+                self.mark_all_damaged();
+                timer.record_time("mark_all");
+            }
+
+            // Propagate damage flags (from mutation and restyles) up and down the tree
+            self.propagate_damage_flags(root_node_id);
+            timer.record_time("damage");
+
+            // Fix up tree for layout (insert anonymous blocks as necessary, etc)
+            self.resolve_layout_children();
+            #[cfg(debug_assertions)]
+            self.assert_layout_parents_consistent();
+            timer.record_time("construct");
+
+            self.resolve_deferred_tasks();
+            // Flush background/mask images from style to dedicated storage on the
+            // nodes whose style changed (queued by the style traversal and by
+            // pseudo-element box construction), fetching any not-yet-loaded images.
+            self.flush_pending_style_images();
+            timer.record_time("pconstruct");
+
+            // Next we resolve layout with the data resolved by stlist
+            self.resolve_layout();
+            self.clamp_viewport_scroll();
+            self.clamp_scroll_animation();
+            timer.record_time("layout");
+
+            if !self.restyle_resized_containers() {
+                break;
+            }
         }
-
-        // Propagate damage flags (from mutation and restyles) up and down the tree
-        self.propagate_damage_flags(root_node_id);
-        timer.record_time("damage");
-
-        // Fix up tree for layout (insert anonymous blocks as necessary, etc)
-        self.resolve_layout_children();
-        #[cfg(debug_assertions)]
-        self.assert_layout_parents_consistent();
-        timer.record_time("construct");
-
-        self.resolve_deferred_tasks();
-        // Flush background/mask images from style to dedicated storage on the
-        // nodes whose style changed (queued by the style traversal and by
-        // pseudo-element box construction), fetching any not-yet-loaded images.
-        self.flush_pending_style_images();
-        timer.record_time("pconstruct");
-
-        // Next we resolve layout with the data resolved by stlist
-        self.resolve_layout();
-        self.clamp_viewport_scroll();
-        self.clamp_scroll_animation();
-        timer.record_time("layout");
         self.nodes.bump_geometry_generation();
 
         // Resolve transforms
@@ -252,6 +261,30 @@ impl BaseDocument {
     }
 
     /// Ensure that the layout_children field is populated for all nodes
+    /// Mark for restyle the subtree of each query container (`container-type` other than
+    /// `normal`) whose content box is not the size its descendants were styled against.
+    /// Says whether there was one.
+    fn restyle_resized_containers(&mut self) -> bool {
+        let mut resized = Vec::new();
+        for (id, node) in self.nodes.iter() {
+            let is_container = node
+                .primary_styles()
+                .is_some_and(|s| !s.get_box().get_container_type().is_normal());
+            if !is_container {
+                continue;
+            }
+            let size = crate::node::content_box_size(node);
+            if self.container_sizes.get(&id) != Some(&size) {
+                resized.push((id, size));
+            }
+        }
+        for &(id, size) in &resized {
+            self.container_sizes.insert(id, size);
+            self.nodes[id].set_restyle_hint(style::invalidation::element::restyle_hints::RestyleHint::restyle_subtree());
+        }
+        !resized.is_empty()
+    }
+
     pub fn resolve_layout_children(&mut self) {
         resolve_layout_children_recursive(self, self.root_node().id);
 
