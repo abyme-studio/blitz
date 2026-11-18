@@ -5,6 +5,7 @@
 
 pub mod control;
 pub mod phases;
+pub mod tick;
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
