@@ -3,6 +3,7 @@
 // so a style write and a read in one task see the new layout.
 import { onSent, read } from "./bridge";
 import { BlitzElement, BlitzNode, BlitzRect, BlitzText, cssName, nodes } from "./node";
+import { frameTimed, timed } from "./times";
 
 /** The node the host calls `id`, made when JS has not seen it (a node of the page's own). */
 export function node(id: number): BlitzNode | null {
@@ -247,7 +248,7 @@ export function frame(batch: FrameBatch): void {
       borderBoxSize: [{ inlineSize: bw!, blockSize: bh! }],
       devicePixelContentBoxSize: [{ inlineSize: cw!, blockSize: ch! }],
     };
-    for (const fn of [...fns]) fn(entry);
+    for (const fn of [...fns]) timed("size watcher", fn, () => fn(entry));
   }
   for (const [id, on, ratio, x, y, w, h] of batch.visible ?? []) {
     const n = nodes.get(id!);
@@ -264,7 +265,7 @@ export function frame(batch: FrameBatch): void {
       rootBounds: new BlitzRect(0, 0, vp.width, vp.height),
       time: batch.time,
     };
-    for (const fn of [...fns]) fn(entry);
+    for (const fn of [...fns]) timed("visible watcher", fn, () => fn(entry));
   }
   const Event = (globalThis as any).Event;
   for (const [id] of batch.scroll ?? []) {
@@ -283,5 +284,6 @@ export function frame(batch: FrameBatch): void {
   }
   const run = frameCallbacks;
   frameCallbacks = new Map();
-  for (const fn of run.values()) fn(batch.time);
+  for (const fn of run.values()) timed("frame callback", fn, () => fn(batch.time));
+  frameTimed();
 }
