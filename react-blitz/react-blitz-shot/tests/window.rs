@@ -200,7 +200,7 @@ fn a_wheel_ticks_frame_says_seven_stages_that_sum_to_its_busy() {
     assert!(stage("js") > 0.0 && stage("layout") > 0.0 && stage("scene") > 0.0 && stage("render") > 0.0, "{busy}");
     assert_eq!((stage("encode"), stage("present")), (0.0, 0.0), "{busy}");
     // How much ran, as numbers: the page's first frame laid out boxes and built text.
-    for k in ["styleTraversals", "layoutNodes", "textLayouts", "glyphRuns", "glyphs", "fragmentsBuilt", "fragmentsKept"] {
+    for k in ["styleTraversals", "layoutNodes", "textLayouts", "glyphRuns", "glyphs", "glyphOutlines", "fragmentsBuilt", "fragmentsKept"] {
         assert!(busy["counts"][k].as_u64().is_some(), "no count {k} in {busy}");
     }
     w.close();
