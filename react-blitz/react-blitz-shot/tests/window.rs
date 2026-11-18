@@ -33,11 +33,16 @@ struct Window {
 
 impl Window {
     fn open(dist: &Path, run: &str) -> Self {
+        Self::open_at(dist, run, "")
+    }
+
+    /// The page opened with a query.
+    fn open_at(dist: &Path, run: &str, query: &str) -> Self {
         let socket = std::env::temp_dir().join(format!("rbw-{}-{run}.sock", std::process::id()));
         let _ = std::fs::remove_file(&socket);
         let child = Command::new(env!("CARGO_BIN_EXE_react-blitz-window"))
             .arg(dist)
-            .arg("")
+            .arg(query)
             .args(["--control", socket.to_str().unwrap(), "--size", "320x200", "--scale", "2", "--timeout", "20"])
             .spawn()
             .expect("react-blitz-window starts");
@@ -77,6 +82,13 @@ impl Window {
 
     fn width(&mut self, selector: &str) -> f64 {
         self.get(selector).unwrap()["width"].as_f64().unwrap()
+    }
+
+    /// One wheel tick of `dy` px at (`x`, 30), its frame, and that frame's counts.
+    fn wheel(&mut self, x: i32, dy: i32) -> Value {
+        self.send(json!({ "cmd": "wheel", "x": x, "y": 30, "dx": 0, "dy": dy }));
+        self.frame();
+        self.send(json!({ "cmd": "busy" }))["counts"].clone()
     }
 
     fn close(mut self) {
@@ -190,6 +202,73 @@ fn a_wheel_ticks_frame_says_seven_stages_that_sum_to_its_busy() {
     // How much ran, as numbers: the page's first frame laid out boxes and built text.
     for k in ["styleTraversals", "layoutNodes", "textLayouts", "glyphRuns", "glyphs"] {
         assert!(busy["counts"][k].as_u64().is_some(), "no count {k} in {busy}");
+    }
+    w.close();
+}
+
+/// A scroll with nothing else: the pointer has left the scroller's rows, three wheel ticks move it,
+/// and no frame of them runs a style traversal or lays out a box; the picture moved all the same.
+#[test]
+fn a_scroll_with_nothing_else_runs_no_style_and_no_layout() {
+    let dist = bundle("rows");
+    let dir = std::env::temp_dir();
+    let shot = |w: &mut Window, name: &str| {
+        let path = dir.join(format!("rbw-{}-{name}.png", std::process::id()));
+        w.send(json!({ "cmd": "shot", "path": path.to_str().unwrap() }));
+        std::fs::read(path).unwrap()
+    };
+    let mut w = Window::open(&dist, "rows");
+    // Over the scroller, right of its rows: a wheel there hovers no row.
+    w.send(json!({ "cmd": "wheel", "x": 180, "y": 30, "dx": 0, "dy": 20 }));
+    w.frame();
+    let before = shot(&mut w, "rows-before");
+    for _ in 0..3 {
+        w.send(json!({ "cmd": "wheel", "x": 180, "y": 30, "dx": 0, "dy": 20 }));
+        w.frame();
+        let counts = w.send(json!({ "cmd": "busy" }))["counts"].clone();
+        assert_eq!((counts["styleTraversals"].as_u64(), counts["layoutNodes"].as_u64()), (Some(0), Some(0)), "{counts}");
+    }
+    let after = shot(&mut w, "rows-after");
+    w.close();
+    // The same offset reached in one tick by a second window, which laid the page out afresh.
+    let mut fresh = Window::open(&dist, "rows-fresh");
+    fresh.send(json!({ "cmd": "wheel", "x": 180, "y": 30, "dx": 0, "dy": 80 }));
+    fresh.frame();
+    let full = shot(&mut fresh, "rows-full");
+    fresh.close();
+    assert!(before != after, "three ticks moved nothing");
+    assert!(after == full, "the scrolled frames' pixels differ from a fresh window's at that offset");
+}
+
+/// A hover after the scroll: the pointer rests on a row, a tick moves the next row under it, and
+/// that frame restyles: the new row is the wide one.
+#[test]
+fn a_row_scrolled_under_the_pointer_restyles_to_its_hover() {
+    let dist = bundle("rows");
+    let mut w = Window::open(&dist, "hover");
+    w.send(json!({ "cmd": "watch", "selectors": [".r1", ".r2"] }));
+    w.send(json!({ "cmd": "move", "x": 50, "y": 30, "mods": [] }));
+    w.frame();
+    assert_eq!((w.width(".r1"), w.width(".r2")), (150.0, 100.0));
+    let counts = w.wheel(50, 20);
+    assert!(counts["styleTraversals"].as_u64().unwrap() >= 1, "{counts}");
+    assert_eq!((w.width(".r1"), w.width(".r2")), (100.0, 150.0));
+    w.close();
+}
+
+/// A running animation makes a frame a full one, restyled once: the frame's second resolve, at the
+/// same time, finds the styles as the first left them.
+#[test]
+fn a_running_animation_restyles_once_a_frame() {
+    let dist = bundle("rows");
+    let mut w = Window::open_at(&dist, "spin", "spin");
+    w.frame();
+    w.frame();
+    for _ in 0..3 {
+        // Right of the rows, so no hover changes.
+        let counts = w.wheel(180, 20);
+        assert_eq!(counts["styleTraversals"].as_u64(), Some(1), "{counts}");
+        assert_eq!(counts["layoutNodes"].as_u64(), Some(0), "{counts}");
     }
     w.close();
 }
