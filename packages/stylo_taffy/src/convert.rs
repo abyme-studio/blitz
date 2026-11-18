@@ -425,6 +425,46 @@ pub fn overflow(input: stylo::Overflow) -> taffy::Overflow {
     }
 }
 
+/// A box's overflow as Taffy lays it out, and the width of the gutter it reserves for its
+/// vertical scrollbar: Taffy reserves `scrollbar_width` on each axis that is `Scroll`.
+///
+/// Without the `scrollbar-gutter` feature no box reserves one. With it, a box with
+/// `scrollbar-gutter: stable` whose `overflow-y` is `auto`, `scroll` or `hidden` reserves the
+/// classic scrollbar's width at its right (15px, 11px for `scrollbar-width: thin`, none for
+/// `none`), and none at its bottom: Taffy has one width for both axes, so the other axis is
+/// laid out as `Hidden`, which differs from `Scroll` in the gutter alone.
+#[inline]
+pub fn overflow_and_gutter(style: &stylo::ComputedValues) -> (taffy::Point<taffy::Overflow>, f32) {
+    let box_styles = style.get_box();
+    #[allow(unused_mut)]
+    let mut overflow = taffy::Point {
+        x: self::overflow(box_styles.overflow_x),
+        y: self::overflow(box_styles.overflow_y),
+    };
+    #[cfg(feature = "scrollbar-gutter")]
+    {
+        use style::properties::generated::longhands::scrollbar_width::computed_value::T as ScrollbarWidth;
+        use style::values::specified::ScrollbarGutter;
+        let width = match style.clone_scrollbar_width() {
+            ScrollbarWidth::Auto => 15.0,
+            ScrollbarWidth::Thin => 11.0,
+            ScrollbarWidth::None => 0.0,
+        };
+        let scrolls = matches!(
+            box_styles.overflow_y,
+            stylo::Overflow::Auto | stylo::Overflow::Scroll | stylo::Overflow::Hidden
+        );
+        if width > 0.0 && scrolls && box_styles.scrollbar_gutter.contains(ScrollbarGutter::STABLE) {
+            if overflow.x == taffy::Overflow::Scroll {
+                overflow.x = taffy::Overflow::Hidden;
+            }
+            overflow.y = taffy::Overflow::Scroll;
+            return (overflow, width);
+        }
+    }
+    (overflow, 0.0)
+}
+
 #[inline]
 pub fn contain(input: stylo::Contain, display: stylo::Display) -> taffy::Contain {
     // Layout and paint containment do not apply to non-atomic inline-level boxes
@@ -980,12 +1020,9 @@ pub fn to_taffy_style(style: &stylo::ComputedValues) -> taffy::Style<Atom> {
         item_is_replaced: false,
         item_is_compressible_replaced: false,
         position: self::position(style.clone_position()),
-        overflow: taffy::Point {
-            x: self::overflow(style.clone_overflow_x()),
-            y: self::overflow(style.clone_overflow_y()),
-        },
+        overflow: self::overflow_and_gutter(style).0,
         direction: self::direction(style.clone_direction()),
-        scrollbar_width: 0.0,
+        scrollbar_width: self::overflow_and_gutter(style).1,
         contain: self::contain(style.clone_contain(), style.clone_display()),
 
         #[cfg(feature = "floats")]
