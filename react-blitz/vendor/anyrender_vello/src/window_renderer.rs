@@ -535,12 +535,16 @@ impl WindowRenderer for VelloWindowRenderer {
         });
         timer.record_time("cmd");
 
+        let step = std::time::Instant::now();
         let Ok(texture_view) = render_surface.target_texture_view() else {
             // Skip frame in case of error trying to get current surface texture
             render_surface.clear_surface_texture();
             self.scene.reset();
             return;
         };
+
+        let acquire = step.elapsed();
+        let step = std::time::Instant::now();
 
         for handle in self.texture_handles.values() {
             state.renderer.mark_override_image_dirty(handle);
@@ -562,6 +566,8 @@ impl WindowRenderer for VelloWindowRenderer {
             )
             .expect("failed to render to texture");
         timer.record_time("render");
+        let render = step.elapsed();
+        let step = std::time::Instant::now();
 
         drop(texture_view);
 
@@ -570,11 +576,20 @@ impl WindowRenderer for VelloWindowRenderer {
             return;
         }
         timer.record_time("present");
+        let present = step.elapsed();
+        let step = std::time::Instant::now();
 
         render_surface
             .device()
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
+        let wait = step.elapsed();
+        crate::frame_times::add(|t| {
+            t.acquire += acquire;
+            t.render += render;
+            t.present += present;
+            t.wait += wait;
+        });
 
         timer.record_time("wait");
         timer.print_times("vello: ");

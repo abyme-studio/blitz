@@ -3,8 +3,8 @@
 //!
 //! Without `--control`: `blitz-shell` with a `ReactDocument` over the build, on wall time, painted
 //! by Vello's GPU renderer or, with `--renderer cpu`, its CPU one (the shot's), into a window; each
-//! frame's work by phase (`react_blitz_shot::phases`) and, every 5 s, V8's heap are logged on
-//! stderr. `--bare` opens an empty document with no JS: what a Blitz window costs alone. With
+//! frame's work by stage and how much of each kind ran (`react_blitz_shot::phases`) and, every
+//! 5 s, V8's heap are logged on stderr. `--bare` opens an empty document with no JS: what a Blitz window costs alone. With
 //! `--control`: the page on a stepped 60 Hz clock, steered by JSON lines on the
 //! Unix socket (`react_blitz_shot::control` lists them), painted with no window, as the shot is.
 
@@ -29,7 +29,7 @@ use blitz_traits::shell::{ColorScheme, Viewport};
 use react_blitz::{Clock, DistLoader, ReactDocument, ReactDocumentConfig};
 use react_blitz_shot::Shot;
 use react_blitz_shot::control::{Control, serve};
-use react_blitz_shot::phases::Phases;
+use react_blitz_shot::phases::{Counts, Phases};
 use react_blitz_v8::V8Engine;
 
 const USAGE: &str = "usage: react-blitz-window <dist> <query> [--control <socket>] [--size WxH] \
@@ -169,12 +169,37 @@ fn window(shot: &Shot, renderer: Renderer, bare: bool) -> anyhow::Result<()> {
 const TICK: Duration = Duration::from_millis(4);
 
 thread_local! {
-    /// The work done since the last frame was drawn: the input and the turns, added as they run.
-    static SINCE: RefCell<Phases> = RefCell::default();
+    /// The work done since the last frame was drawn: the input and the turns, and the resolves
+    /// they ran, added as they run.
+    static SINCE: RefCell<(Phases, Counts)> = RefCell::default();
     /// When the document was last borrowed to change: a redraw's first act, before its resolve.
     static BORROWED: Cell<Option<Instant>> = const { Cell::new(None) };
     /// The part of the frame being drawn that handed its pixels to the window.
     static PRESENT: Cell<f64> = const { Cell::new(0.0) };
+    /// The frame last drawn, not yet logged: its line waits for the document to say what its
+    /// redraw's resolve ran, which the renderer cannot ask while the redraw holds the document.
+    static DRAWN: RefCell<Option<Drawn>> = const { RefCell::new(None) };
+}
+
+/// A frame drawn and not yet logged.
+struct Drawn {
+    frame: u64,
+    /// Every stage but the redraw's resolve.
+    phases: Phases,
+    counts: Counts,
+    /// The redraw's resolve, in ms: from its borrow of the document to its render.
+    resolve: f64,
+    since: Option<f64>,
+}
+
+impl Drawn {
+    /// Log the frame, its redraw's resolve split by what the document says it ran.
+    fn log(mut self, redraw: &blitz_dom::ResolveStats) {
+        self.phases.add_resolve(self.resolve, redraw);
+        self.counts.add_resolves(redraw);
+        let since = self.since.map(|ms| format!("{ms:.1} ms"));
+        eprintln!("react-blitz-window: frame {} {}; {}; since last {}", self.frame, self.phases, self.counts, since.as_deref().unwrap_or("-"));
+    }
 }
 
 fn ms(since: Instant) -> f64 {
@@ -192,20 +217,48 @@ struct Ticking {
     turned: Instant,
 }
 
+impl Ticking {
+    /// Log the frame last drawn, if one waits: the resolves the document has counted since the
+    /// last input or turn are its redraw's.
+    fn settle(&mut self) {
+        let redraw = self.doc.inner_mut().take_resolve_stats();
+        match DRAWN.take() {
+            Some(drawn) => drawn.log(&redraw),
+            // A resolve outside a frame (the window's resume): the next frame's.
+            None => SINCE.with_borrow_mut(|(phases, counts)| {
+                phases.add_script(0.0, &redraw);
+                counts.add_resolves(&redraw);
+            }),
+        }
+    }
+
+    /// Add `start` to now to the frame being made, as input or a turn: JS, and the resolves it ran.
+    fn script(&mut self, start: Instant) {
+        let within = ms(start);
+        let ran = self.doc.inner_mut().take_resolve_stats();
+        SINCE.with_borrow_mut(|(phases, counts)| {
+            phases.add_script(within, &ran);
+            counts.add_resolves(&ran);
+        });
+    }
+}
+
 impl Document for Ticking {
     fn inner(&self) -> DocGuard<'_> {
         self.doc.inner()
     }
 
     fn inner_mut(&mut self) -> DocGuardMut<'_> {
+        self.settle();
         BORROWED.set(Some(Instant::now()));
         self.doc.inner_mut()
     }
 
     fn handle_ui_event(&mut self, event: UiEvent) {
+        self.settle();
         let start = Instant::now();
         self.doc.handle_ui_event(event);
-        SINCE.with_borrow_mut(|p| p.input += ms(start));
+        self.script(start);
     }
 
     fn poll(&mut self, cx: Option<TaskContext>) -> bool {
@@ -220,13 +273,14 @@ impl Document for Ticking {
                 });
             });
         }
+        self.settle();
         let start = Instant::now();
         if start.duration_since(self.turned) < TICK {
             return false;
         }
         self.turned = start;
         let ran = self.doc.poll(cx);
-        SINCE.with_borrow_mut(|p| p.turn += ms(start));
+        self.script(start);
         if self.heap.elapsed() >= Duration::from_secs(5) {
             self.heap = Instant::now();
             let nodes = self.doc.inner().tree().len();
@@ -240,9 +294,10 @@ impl Document for Ticking {
     }
 }
 
-/// The window's renderer, logging each frame: its work by phase, and the time since the frame
-/// before. The resolve is the time from the redraw borrowing the document to its render; with the
-/// GPU renderer the raster holds the present, which Vello does not time apart.
+/// The window's renderer, timing each frame for its log line: its work by stage, and the time
+/// since the frame before. The redraw's resolve is the time from its borrow of the document to
+/// its render. Vello's GPU renderer says its own steps (`anyrender_vello::take_frame_times`);
+/// with another the render is the frame's time less the scene and the present.
 struct Timed<R> {
     renderer: R,
     frame: u64,
@@ -297,13 +352,30 @@ impl<R: WindowRenderer + 'static> WindowRenderer for Timed<R> {
             draw_fn(painter);
             scene = ms(at);
         });
-        let present = PRESENT.take();
-        let raster = ms(start) - scene - present;
-        let phases = SINCE.with_borrow_mut(|p| Phases { resolve, scene, raster, present, ..std::mem::take(p) });
-        let since = self.last.map(|l| format!("{:.1} ms", start.duration_since(l).as_secs_f64() * 1000.0));
+        let drawn = ms(start);
+        let secs = |d: Duration| d.as_secs_f64() * 1000.0;
+        let gpu = anyrender_vello::take_frame_times();
+        let (mut phases, mut counts) = SINCE.take();
+        if gpu.render.is_zero() {
+            phases.present = PRESENT.take();
+            phases.scene = scene;
+            phases.render = (drawn - scene - phases.present).max(0.0);
+        } else {
+            phases.encode = secs(gpu.encode).min(scene);
+            phases.scene = scene - phases.encode;
+            phases.present = secs(gpu.acquire + gpu.present);
+            // The render and the wait for the device, and what little of the frame no step timed.
+            phases.render = (drawn - scene - phases.present).max(0.0);
+            counts.glyph_runs = gpu.glyph_runs;
+            counts.glyphs = gpu.glyphs;
+        }
+        let since = self.last.map(|l| start.duration_since(l).as_secs_f64() * 1000.0);
         self.last = Some(start);
         self.frame += 1;
-        eprintln!("react-blitz-window: frame {} {phases}; since last {}", self.frame, since.as_deref().unwrap_or("-"));
+        // A frame still waiting was drawn with no input or turn since: it logs with no split.
+        if let Some(waiting) = DRAWN.replace(Some(Drawn { frame: self.frame, phases, counts, resolve, since })) {
+            waiting.log(&Default::default());
+        }
     }
 }
 
