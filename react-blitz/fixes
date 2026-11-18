@@ -1,6 +1,3 @@
 # The fix branches `abyme` carries, in the order react-blitz/recompose applies them.
 # One branch per line, each one commit off upstream/main. A fix upstream has taken comes off.
-#
-# Out for now:
-# fix/sticky-upstream-960: abyme's 4 chat "asking" stories panic with it ("invalid SlotMap key"
-#   in physical_unrounded_geometry, walking containing_block); back once that is understood.
+fix/sticky-upstream-960
