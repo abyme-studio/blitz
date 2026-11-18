@@ -58,6 +58,7 @@ mod resolve;
 mod resolved_style;
 /// Scrolling of nodes and the viewport, and scroll animations.
 mod scrolling;
+mod stats;
 mod selection;
 /// `position: sticky` offsets, resolved after layout.
 pub mod sticky;
@@ -105,6 +106,7 @@ pub use mutator::DocumentMutator;
 pub use node::{Attribute, DocumentData, ElementData, Node, NodeData, TextNodeData};
 pub use parley::FontContext;
 pub use scrolling::{ScrollBehavior, ScrollLogicalPosition};
+pub use stats::ResolveStats;
 pub use stylo::UserAgentStylesheet;
 pub use tree::NodeTree;
 
