@@ -129,7 +129,15 @@ impl HostCalls for Host {
         let mut doc = self.0.doc.borrow_mut();
         state.changed = true;
         if let Err(e) = state.tree.apply(&mut doc, ops, strings) {
-            eprintln!("react-blitz: a commit did not apply: {e}");
+            // The op itself, so the log says what named the node.
+            let what = match &e {
+                blitz_commit::ApplyError::NoNode { op, .. } => blitz_commit::decode(ops, strings)
+                    .ok()
+                    .and_then(|all| all.get(*op).map(|o| format!(": {o:?}")))
+                    .unwrap_or_default(),
+                _ => String::new(),
+            };
+            eprintln!("react-blitz: a commit did not apply: {e}{what}");
             state.errors.push(e.to_string());
         }
     }
