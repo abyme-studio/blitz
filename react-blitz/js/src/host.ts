@@ -222,6 +222,33 @@ export function cancelFrame(handle: number): void {
   frameCallbacks.delete(handle);
 }
 
+let idleCallbacks = new Map<number, { fn: () => void; timer?: ReturnType<typeof setTimeout> }>();
+
+/** Run `fn` once the page is idle: after the next frame, when what was due by then has run, as a
+ * browser's `requestIdleCallback` does; at `within` ms at the latest. Answers a handle `cancelIdle`
+ * takes. */
+export function idle(fn: () => void, within?: number): number {
+  const handle = nextHandle++;
+  if (idleCallbacks.size === 0) read().frame();
+  const timer = within === undefined ? undefined : setTimeout(() => runIdle([handle]), within);
+  idleCallbacks.set(handle, { fn, timer });
+  return handle;
+}
+
+export function cancelIdle(handle: number): void {
+  clearTimeout(idleCallbacks.get(handle)?.timer);
+  idleCallbacks.delete(handle);
+}
+
+function runIdle(handles: number[]): void {
+  for (const h of handles) {
+    const waiting = idleCallbacks.get(h);
+    if (!waiting) continue;
+    cancelIdle(h);
+    timed("idle callback", waiting.fn, waiting.fn);
+  }
+}
+
 /** What the host sends once a frame, after layout. */
 export interface FrameBatch {
   time: number;
@@ -285,5 +312,7 @@ export function frame(batch: FrameBatch): void {
   const run = frameCallbacks;
   frameCallbacks = new Map();
   for (const fn of run.values()) timed("frame callback", fn, () => fn(batch.time));
+  // The frame's work is done: a task after it, behind every timer already due, is the idle time.
+  if (idleCallbacks.size) setTimeout(() => runIdle([...idleCallbacks.keys()]), 0);
   frameTimed();
 }
