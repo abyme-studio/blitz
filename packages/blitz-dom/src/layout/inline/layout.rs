@@ -556,6 +556,18 @@ impl LayoutPassState<'_> {
                     ibox.height = 0.0;
                     ibox.baseline = None;
                 } else {
+                    // A box that exports a baseline is laid out even while this context is
+                    // only sized: a flex or grid container computes its baselines in its layout
+                    // pass alone, and a box sized without one sits on the line's baseline, so the
+                    // line would be measured taller than it is then laid out.
+                    let box_inputs = if exports_baseline {
+                        taffy::tree::LayoutInput {
+                            run_mode: RunMode::PerformLayout,
+                            ..box_inputs
+                        }
+                    } else {
+                        box_inputs
+                    };
                     let output =
                         self.compute_child_layout(taffy::NodeId::from(ibox.id), box_inputs);
                     ibox.width = (margin.left + margin.right + output.size.width) * scale;
