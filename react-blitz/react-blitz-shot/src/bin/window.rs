@@ -25,7 +25,7 @@ use anyrender_vello_gpu::VelloGpuWindowRenderer;
 use blitz_dom::{BaseDocument, DocGuard, DocGuardMut, Document, DocumentConfig};
 use blitz_shell::{BlitzApplication, BlitzShellProxy, WindowConfig, create_default_event_loop};
 use blitz_traits::events::UiEvent;
-use blitz_traits::shell::{ColorScheme, Viewport};
+use blitz_traits::shell::ColorScheme;
 use react_blitz::{Clock, DistLoader, ReactDocument, ReactDocumentConfig};
 use react_blitz_shot::Shot;
 use react_blitz_shot::control::{Control, serve};
@@ -342,6 +342,7 @@ impl<R: WindowRenderer + 'static> WindowRenderer for Timed<R> {
         let secs = |d: Duration| d.as_secs_f64() * 1000.0;
         let gpu = anyrender_vello::take_frame_times();
         let (mut phases, mut counts) = SINCE.take();
+        counts.take_fragments();
         if gpu.render.is_zero() {
             phases.present = PRESENT.take();
             phases.scene = scene;

@@ -35,3 +35,16 @@ To see the fixes: `diff -r ~/.cargo/registry/src/*/stylo-0.24.0 vendor/stylo`.
   own thread (`take_frame_times`): encoding the scene, acquiring the surface, the render, the
   present and the wait for the GPU, and counts the glyph runs and glyphs drawn. Upstream times
   none of them. `react-blitz-window` logs them per frame.
+- `scene.rs`, `image_renderer.rs`, `window_renderer.rs`: the painter keeps fragments
+  (`PaintScene::begin_fragment`, below), each a `vello::Scene` in the renderer, drawn again by
+  Vello's own `append`. Upstream has none.
+
+## anyrender 0.15.0
+
+- `lib.rs`: `PaintScene` has `begin_fragment`, `end_fragment` and `append_fragment`: what is
+  drawn between the first two is set aside in the back end's own form under a `ResourceId`, and
+  the third draws it again under a transform, in a later frame too. Each is a provided method
+  that answers no, so a back end without them draws as before. blitz-paint keeps a scroll
+  container's content with them (`fix/scene-fragments`, `keep_fragments`).
+
+To see the fixes: `diff -r ~/.cargo/registry/src/*/anyrender-0.15.0 vendor/anyrender`.
