@@ -4,13 +4,14 @@
 //! stepped page, steered over a socket.
 
 pub mod control;
+pub mod phases;
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use anyrender::{AntiAliasing, PaintScene as _, render_to_buffer};
+use anyrender::{AntiAliasing, ImageRenderer as _, PaintScene as _};
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use blitz_dom::util::Color;
 use blitz_dom::{Document as _, DocumentConfig};
@@ -110,10 +111,21 @@ pub fn shoot(shot: &Shot) -> anyhow::Result<Image> {
 /// Paint the document's frame as it stands, on white, by `blitz_paint::paint_scene` into Vello's
 /// CPU renderer: `width` and `height` in CSS pixels; answers the device size and its RGBA.
 pub fn paint(doc: &mut blitz_dom::BaseDocument, width: u32, height: u32, scale: f32) -> (u32, u32, Vec<u8>) {
+    let (width, height, rgba, _, _) = paint_timed(doc, width, height, scale);
+    (width, height, rgba)
+}
+
+/// [`paint`], and its two parts in ms: building the scene, then turning it into pixels.
+pub fn paint_timed(doc: &mut blitz_dom::BaseDocument, width: u32, height: u32, scale: f32) -> (u32, u32, Vec<u8>, f64, f64) {
     let width = (width as f32 * scale).round() as u32;
     let height = (height as f32 * scale).round() as u32;
-    let rgba = render_to_buffer::<VelloCpuImageRenderer, _>(
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    let start = Instant::now();
+    let mut scene_ms = 0.0;
+    let mut renderer = VelloCpuImageRenderer::new(width, height);
+    renderer.render_to_vec(
         |scene| {
+            let at = Instant::now();
             scene.fill(
                 Fill::NonZero,
                 Default::default(),
@@ -123,11 +135,12 @@ pub fn paint(doc: &mut blitz_dom::BaseDocument, width: u32, height: u32, scale: 
                 AntiAliasing::Enabled,
             );
             paint_scene(scene, doc, scale as f64, width, height, 0, 0);
+            scene_ms = at.elapsed().as_secs_f64() * 1000.0;
         },
-        width,
-        height,
+        &mut rgba,
     );
-    (width, height, rgba)
+    let raster_ms = start.elapsed().as_secs_f64() * 1000.0 - scene_ms;
+    (width, height, rgba, scene_ms, raster_ms)
 }
 
 /// The frame's boxes and every element's under it, then each portal's: each element child of `body`
