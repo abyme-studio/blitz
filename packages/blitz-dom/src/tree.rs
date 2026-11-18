@@ -38,6 +38,14 @@ pub struct NodeTree {
     /// paint child offsets) are memoised against it. Starts at 1 so that a
     /// stamp of 0 is never current.
     geometry_generation: AtomicU64,
+    /// The paint a change is stamped with (`Node::paint_stamp`): a painter that keeps part of
+    /// its scene between frames advances it as it starts, so what it keeps is stale exactly
+    /// when a stamp in its subtree is not older than the clock it was built at. Starts at 1.
+    paint_clock: AtomicU64,
+    /// Bumped by a change to what is painted that no node's damage or layout says: a
+    /// selection, a text input's edit, a loaded resource, the device. Everything kept is
+    /// stale after it.
+    paint_epoch: AtomicU64,
     /// Scroll offset of the viewport (the root element scrolls the viewport,
     /// so its offset lives here rather than on the node).
     viewport_scroll: crate::Point<f64>,
@@ -48,6 +56,8 @@ impl NodeTree {
         Self {
             map: SlotMap::with_key(),
             geometry_generation: AtomicU64::new(1),
+            paint_clock: AtomicU64::new(1),
+            paint_epoch: AtomicU64::new(0),
             viewport_scroll: crate::Point::ZERO,
         }
     }
@@ -70,6 +80,39 @@ impl NodeTree {
 
     pub(crate) fn bump_geometry_generation(&self) {
         self.geometry_generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// See the `paint_clock` field.
+    pub fn paint_clock(&self) -> u64 {
+        self.paint_clock.load(Ordering::Relaxed)
+    }
+
+    /// Start a paint that keeps scene between frames: changes from here on are stamped with
+    /// the clock this answers.
+    pub fn advance_paint_clock(&self) -> u64 {
+        self.paint_clock.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// See the `paint_epoch` field.
+    pub fn paint_epoch(&self) -> u64 {
+        self.paint_epoch.load(Ordering::Relaxed)
+    }
+
+    pub fn bump_paint_epoch(&self) {
+        self.paint_epoch.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// What `id` paints changed: stamp it and its ancestors, each of which paints it. Stops at
+    /// an ancestor already stamped by this clock, whose own ancestors are then stamped too.
+    pub fn mark_paint_changed(&self, id: NodeId) {
+        let clock = self.paint_clock();
+        let mut next = Some(id);
+        while let Some(node) = next.and_then(|id| self.get(id)) {
+            if node.paint_stamp.replace(clock) == clock {
+                break;
+            }
+            next = node.parent;
+        }
     }
 
     /// The number of live nodes in the map.
