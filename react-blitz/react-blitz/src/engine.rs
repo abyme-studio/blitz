@@ -41,6 +41,8 @@ pub trait HostCalls {
     fn observe(&mut self, id: u32, kind: &str, on: bool);
     fn frame(&mut self);
     fn viewport(&mut self) -> [f64; 3];
+    /// The width `text` takes on one line in a font of the page's, in CSS pixels.
+    fn text_width(&mut self, text: &str, family: &str, size: f64, weight: f64, italic: bool) -> f64;
     fn adopt(&mut self, which: &str) -> u32;
     fn at(&mut self, x: f64, y: f64) -> u32;
     fn tag(&mut self, id: u32) -> String;

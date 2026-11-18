@@ -132,6 +132,21 @@ export function viewport(): { width: number; height: number; scale: number } {
   return { width: width!, height: height!, scale: scale! };
 }
 
+/** A CSS `font` as a canvas takes it, in the form a computed style gives: `[style] [weight] <size>px <families>`. */
+const FONT = /^\s*(?:(normal|italic|oblique)\s+)?(?:(normal|bold|\d{1,4})\s+)?(\d*\.?\d+)px(?:\/\S+)?\s+(\S.*)$/;
+
+/**
+ * The width `text` takes on one line in `font`, in CSS pixels: a canvas's
+ * `measureText(text).width`. `font` is a CSS font of the form `[style] [weight] <size>px
+ * <families>`, as `italic 600 12px Inter, sans-serif`; another form throws.
+ */
+export function textWidth(text: string, font: string): number {
+  const m = FONT.exec(font);
+  if (!m) throw new Error(`react-blitz: textWidth reads a font as "[style] [weight] <size>px <families>", not "${font}"`);
+  const weight = m[2] === "bold" ? 700 : m[2] === undefined || m[2] === "normal" ? 400 : Number(m[2]);
+  return read().textWidth(text, m[4]!.trim(), Number(m[3]), weight, m[1] === "italic" || m[1] === "oblique");
+}
+
 /** A node of the page's own: "document", "html", "head" or "body". */
 export function adopt(which: "document" | "html" | "head" | "body"): BlitzNode {
   const n = node(read().adopt(which));
