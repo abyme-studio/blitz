@@ -5,6 +5,7 @@
 import { currentEvent } from "./config";
 import { BlitzElement, BlitzEventTarget, BlitzNode, eventOfProp, setDispatchHook } from "./node";
 import * as host from "./host";
+import { timed } from "./times";
 
 /** The event kinds the host sends, by index: react-blitz/src/events.rs has the same list. */
 export const EVENT_TYPES = [
@@ -32,8 +33,8 @@ function invoke(target: BlitzEventTarget, event: any, capture: boolean, phase: n
       if (l.capture !== capture) continue;
       if (l.once) target.removeEventListener(event.type, l.fn, { capture: l.capture });
       try {
-        if (typeof l.fn === "function") l.fn.call(event.currentTarget, event);
-        else l.fn.handleEvent(event);
+        const fn = l.fn;
+        timed(event.type, fn, () => (typeof fn === "function" ? fn.call(event.currentTarget, event) : fn.handleEvent(event)));
       } catch (e) {
         console.error(e);
       }
@@ -48,7 +49,7 @@ function invoke(target: BlitzEventTarget, event: any, capture: boolean, phase: n
       if (!e || e.type !== event.type) continue;
       if (e.capture !== capture) continue;
       try {
-        fn(event);
+        timed(`${event.type} prop`, fn, () => fn(event));
       } catch (err) {
         console.error(err);
       }
@@ -135,7 +136,7 @@ export function dispatchFromHost(kind: number, chain: number[], fields: Record<s
   currentEvent.type = type;
   currentEvent.time = event.timeStamp ?? -1.1;
   try {
-    propagate(path, event);
+    timed(`host ${type}, whole`, null, () => propagate(path, event));
   } finally {
     currentEvent.type = null;
     currentEvent.time = -1.1;
