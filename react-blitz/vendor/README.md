@@ -22,3 +22,12 @@ taken comes off; a folder with no fixes left is deleted with its patch line.
   (`fix/scrollbar-gutter`), which `react-blitz` turns on.
 
 To see the fixes: `diff -r ~/.cargo/registry/src/*/stylo-0.24.0 vendor/stylo`.
+
+## anyrender_vello 0.16.0
+
+- `window_renderer.rs`: `VelloWindowRenderer::warm` builds the device and Vello's compute
+  pipelines on a thread of their own, from the renderer's making, and the first `resume` takes
+  them. Upstream builds them inside `resume`, on the main thread, where Metal takes about half a
+  second for them before the window's first frame.
+- `window_renderer.rs`: the renderer builds the pipelines of its own antialiasing method only.
+  Upstream builds all three (`AaSupport::all()`), two of which a window never draws with.
