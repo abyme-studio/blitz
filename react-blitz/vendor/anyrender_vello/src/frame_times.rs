@@ -20,6 +20,9 @@ pub struct FrameTimes {
     pub glyph_runs: u32,
     /// Glyphs drawn.
     pub glyphs: u32,
+    /// Glyph outlines Vello encoded: the glyphs its cache did not hold. Of the whole process,
+    /// since the last call.
+    pub glyph_outlines: u32,
 }
 
 thread_local! {
@@ -31,12 +34,15 @@ thread_local! {
         wait: Duration::ZERO,
         glyph_runs: 0,
         glyphs: 0,
+        glyph_outlines: 0,
     }) };
 }
 
 /// The times of the frames drawn on this thread since the last call, added.
 pub fn take_frame_times() -> FrameTimes {
-    FRAME.take()
+    let mut times = FRAME.take();
+    times.glyph_outlines = vello::low_level::vello_encoding::take_glyph_outlines_encoded();
+    times
 }
 
 pub(crate) fn add(f: impl FnOnce(&mut FrameTimes)) {
