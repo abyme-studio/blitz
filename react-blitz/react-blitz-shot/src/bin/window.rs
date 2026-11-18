@@ -105,7 +105,7 @@ fn run() -> anyhow::Result<()> {
 /// The page in a window, on wall time; `bare`, an empty document in its place.
 fn window(shot: &Shot, gpu: bool, bare: bool) -> anyhow::Result<()> {
     let document = DocumentConfig {
-        viewport: Some(Viewport::new(shot.width, shot.height, shot.scale, shot.scheme)),
+        viewport: Some(shot.viewport()),
         ..Default::default()
     };
     let doc: Box<dyn Document> = if bare {
