@@ -23,6 +23,7 @@
     observe: (id, kind, on) => ops.op_rb_observe(id, kind, on),
     frame: () => ops.op_rb_frame(),
     viewport: () => ops.op_rb_viewport(),
+    textWidth: (text, family, size, weight, italic) => ops.op_rb_text_width(text, family, size, weight, italic),
     adopt: (w) => ops.op_rb_adopt(w),
     at: (x, y) => ops.op_rb_at(x, y),
     tag: (id) => ops.op_rb_tag(id),
