@@ -15,6 +15,9 @@ use crate::host::{Host, Shared};
 use crate::loader::{DistLoader, ModuleSource};
 use crate::net::FileNetProvider;
 
+/// A display frame on wall time, less the slack of an embedder that turns the page every few ms.
+const FRAME: Duration = Duration::from_millis(15);
+
 /// A built page to open: its folder, the HTML file in it, and the query its address carries.
 pub struct ReactDocumentConfig {
     pub dist: PathBuf,
@@ -97,18 +100,26 @@ impl<E: ScriptEngine> ReactDocument<E> {
         &mut self.engine
     }
 
-    /// Run JS's due work, then lay out and send the frame batch: one turn of the page.
+    /// Run JS's due work, then lay out and send the frame batch: one turn of the page. On wall
+    /// time the layout and the batch go once a display frame, however often the embedder turns
+    /// the page for its timers; on a stepped clock every turn is a frame.
     pub fn run(&mut self, budget: Duration) -> bool {
         let mut ran = self.engine.pump(Instant::now() + budget);
-        self.shared.resolve();
-        if let Some(batch) = frame::batch(&self.shared) {
-            self.engine.frame(&batch);
-            self.engine.pump(Instant::now() + budget);
-            ran = true;
-        }
-        let wants_frame = self.shared.state.borrow().frame_wanted;
-        if wants_frame {
-            self.shared.doc.borrow().shell_provider.request_redraw();
+        let due = {
+            let mut state = self.shared.state.borrow_mut();
+            let due = state.clock.is_some() || state.last_frame.is_none_or(|at| at.elapsed() >= FRAME);
+            if due {
+                state.last_frame = Some(Instant::now());
+            }
+            due
+        };
+        if due {
+            self.shared.resolve();
+            if let Some(batch) = frame::batch(&self.shared) {
+                self.engine.frame(&batch);
+                self.engine.pump(Instant::now() + budget);
+                ran = true;
+            }
         }
         ran
     }
@@ -162,7 +173,9 @@ impl<E: ScriptEngine + 'static> Document for ReactDocument<E> {
         self.shared.doc.borrow().shell_provider.request_redraw();
     }
 
+    /// A turn of the page; true, which has the shell redraw, only when it committed a change.
     fn poll(&mut self, _cx: Option<TaskContext>) -> bool {
-        self.run(Duration::from_millis(8))
+        self.run(Duration::from_millis(8));
+        std::mem::take(&mut self.shared.state.borrow_mut().changed)
     }
 }
