@@ -155,7 +155,24 @@ fn laid_boxes(doc: &blitz_dom::BaseDocument) -> Vec<LaidBox> {
         let after = kids.iter().position(|k| *k == holder).map_or(0, |i| i + 1);
         roots.extend(kids[after..].iter().enumerate().map(|(i, k)| (*k, format!("portal{i}"))));
     }
-    let Some(origin) = doc.get_client_bounding_rect(roots[0].0) else {
+    // Blitz can keep a box's containing block after that node is gone (a subtree hidden, then its
+    // parent replaced), and its bounding rect then panics: such a box is unlaid, 0×0 as a browser says.
+    let laid = |id: blitz_dom::NodeId| {
+        let mut at = doc.get_node(id).and_then(|n| n.containing_block());
+        while let Some(cb) = at {
+            let Some(node) = doc.get_node(cb) else { return false };
+            at = node.containing_block();
+        }
+        true
+    };
+    let rect = |id: blitz_dom::NodeId| {
+        if laid(id) {
+            doc.get_client_bounding_rect(id)
+        } else {
+            Some(blitz_dom::BoundingRect { x: 0.0, y: 0.0, width: 0.0, height: 0.0 })
+        }
+    };
+    let Some(origin) = rect(roots[0].0) else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -163,7 +180,7 @@ fn laid_boxes(doc: &blitz_dom::BaseDocument) -> Vec<LaidBox> {
         let mut todo = vec![(root, key)];
         while let Some((id, path)) = todo.pop() {
             let name = tag(id);
-            if let Some(r) = doc.get_client_bounding_rect(id) {
+            if let Some(r) = rect(id) {
                 out.push(LaidBox {
                     path: path.clone(),
                     tag: name.clone(),
