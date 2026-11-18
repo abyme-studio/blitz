@@ -294,7 +294,7 @@ pub(crate) fn handle_pointermove(
         return has_changed;
     }
 
-    let Some(hit) = doc.hit(x, y) else {
+    let Some(hit) = doc.hit_with_scrollbar(x, y).0 else {
         return changed;
     };
 
@@ -410,7 +410,7 @@ pub(crate) fn handle_pointerdown(
     button: MouseEventButton,
     mods: Modifiers,
 ) {
-    let Some(hit) = doc.hit(x, y) else {
+    let Some(hit) = doc.hit_with_scrollbar(x, y).0 else {
         // Clear text selection when clicking outside any element
         doc.clear_text_selection();
         return;
