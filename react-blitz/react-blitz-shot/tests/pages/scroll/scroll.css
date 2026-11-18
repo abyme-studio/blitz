@@ -1,0 +1,4 @@
+body { margin: 0; background: #f4f1ea; }
+.scroller { width: 200px; height: 100px; overflow-y: scroll; }
+.long { height: 1000px; }
+.count, .top { height: 10px; background: #1f6feb; }
