@@ -37,4 +37,5 @@ fn container_units_and_rules_follow_the_container() {
     assert_eq!(size("0"), [200.0, 80.0], "the container");
     assert_eq!(size("0.0"), [100.0, 80.0], "50cqw by 100cqh of a 200 by 80 container");
     assert_eq!(size("0.1"), [40.0, 10.0], "the rule for a container 150px wide or more");
+    assert_eq!(size("1.0"), [30.0, 10.0], "the rule for a container named `page` under 150px");
 }

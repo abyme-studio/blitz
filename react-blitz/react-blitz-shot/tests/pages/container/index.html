@@ -8,6 +8,9 @@
       .fill { position: absolute; left: 0; top: 0; width: 50cqw; height: 100cqh; }
       .ruled { position: absolute; left: 0; top: 0; width: 10px; height: 10px; }
       @container (min-width: 150px) { .ruled { width: 40px; } }
+      .page { container: page / inline-size; position: absolute; left: 0; top: 100px; width: 120px; height: 20px; }
+      .named { width: 10px; height: 10px; }
+      @container page (width < 150px) { .named { width: 30px; } }
     </style>
   </head>
   <body>
