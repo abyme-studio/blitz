@@ -134,6 +134,8 @@ pub struct ScrollFrame {
     pub scene: f64,
     /// Turning the scene into pixels in memory: on the GPU, its draw and the copy back.
     pub raster: f64,
+    /// The scroll containers' kept content: fragments built this frame, and drawn again as kept.
+    pub fragments: blitz_paint::FragmentStats,
 }
 
 /// The page scrolled by a wheel of `scroll` CSS pixels (down when positive) at its middle before
@@ -144,53 +146,81 @@ pub fn scroll_frames(shot: &Shot, frames: usize, scroll: f64, gpu: bool) -> anyh
 }
 
 fn scroll_with<R: ImageRenderer>(shot: &Shot, frames: usize, scroll: f64) -> anyhow::Result<(Vec<ScrollFrame>, Image)> {
-    let (mut doc, mut time) = open(shot)?;
-    let width = (shot.width as f32 * shot.scale).round() as u32;
-    let height = (shot.height as f32 * shot.scale).round() as u32;
+    let mut page = Offscreen::<R>::open(shot)?;
     let (x, y) = (shot.width as f32 / 2.0, shot.height as f32 / 2.0);
-    let mut renderer = R::new(width, height);
-    let mut rgba = Vec::new();
-    let mut times = Vec::with_capacity(frames);
     // Blitz scrolls what the pointer is over: put it at the middle before the first wheel.
-    let coords = PointerCoords { screen_x: x, screen_y: y, client_x: x, client_y: y, page_x: x, page_y: y };
-    doc.handle_ui_event(UiEvent::PointerMove(BlitzPointerEvent {
-        id: BlitzPointerId::Mouse,
-        is_primary: true,
-        coords,
-        button: Default::default(),
-        buttons: Default::default(),
-        mods: Default::default(),
-        details: Default::default(),
-        element: Default::default(),
-        active_pointers: Default::default(),
-    }));
+    page.pointer(x, y);
+    let mut times = Vec::with_capacity(frames);
     for _ in 0..frames {
-        let at = doc.inner().viewport_scroll();
-        doc.handle_ui_event(UiEvent::Wheel(BlitzWheelEvent {
+        page.wheel(x, y, scroll);
+        times.push(page.frame());
+    }
+    Ok((times, page.image()))
+}
+
+/// A page painted whole with no window, frame after frame, by one renderer kept between them.
+pub struct Offscreen<R: ImageRenderer> {
+    doc: ReactDocument<V8Engine>,
+    renderer: R,
+    time: f64,
+    scale: f32,
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+}
+
+impl<R: ImageRenderer> Offscreen<R> {
+    pub fn open(shot: &Shot) -> anyhow::Result<Self> {
+        let (doc, time) = open(shot)?;
+        let width = (shot.width as f32 * shot.scale).round() as u32;
+        let height = (shot.height as f32 * shot.scale).round() as u32;
+        Ok(Self { doc, renderer: R::new(width, height), time, scale: shot.scale, width, height, rgba: Vec::new() })
+    }
+
+    /// Move the pointer to a point of the viewport, in CSS pixels, no button held.
+    pub fn pointer(&mut self, x: f32, y: f32) {
+        let at = self.doc.inner().viewport_scroll();
+        let coords = PointerCoords { screen_x: x, screen_y: y, client_x: x, client_y: y, page_x: x + at.x as f32, page_y: y + at.y as f32 };
+        self.doc.handle_ui_event(UiEvent::PointerMove(BlitzPointerEvent {
+            id: BlitzPointerId::Mouse,
+            is_primary: true,
+            coords,
+            button: Default::default(),
+            buttons: Default::default(),
+            mods: Default::default(),
+            details: Default::default(),
+            element: Default::default(),
+            active_pointers: Default::default(),
+        }));
+    }
+
+    /// A wheel of `scroll` CSS pixels (down when positive) at a point of the viewport.
+    pub fn wheel(&mut self, x: f32, y: f32, scroll: f64) {
+        let at = self.doc.inner().viewport_scroll();
+        self.doc.handle_ui_event(UiEvent::Wheel(BlitzWheelEvent {
             // Blitz's wheel, as the window makes it from winit's: positive scrolls up.
             delta: BlitzWheelDelta::Pixels(0.0, -scroll),
             phase: Default::default(),
             source: Default::default(),
-            coords: PointerCoords {
-                screen_x: x,
-                screen_y: y,
-                client_x: x,
-                client_y: y,
-                page_x: x + at.x as f32,
-                page_y: y + at.y as f32,
-            },
+            coords: PointerCoords { screen_x: x, screen_y: y, client_x: x, client_y: y, page_x: x + at.x as f32, page_y: y + at.y as f32 },
             buttons: Default::default(),
             mods: Default::default(),
             element: Default::default(),
         }));
-        time += FRAME;
-        doc.poll(None);
-        doc.inner_mut().resolve(time);
+    }
+
+    /// The next frame: the page turned and resolved a display frame on, then painted.
+    pub fn frame(&mut self) -> ScrollFrame {
+        self.time += FRAME;
+        self.doc.poll(None);
+        self.doc.inner_mut().resolve(self.time);
 
         let start = Instant::now();
         let mut scene_ms = 0.0;
-        let mut inner = doc.inner_mut();
-        renderer.render_to_vec(
+        let mut inner = self.doc.inner_mut();
+        let (width, height, scale) = (self.width, self.height, self.scale);
+        blitz_paint::take_fragment_stats();
+        self.renderer.render_to_vec(
             |scene| {
                 let at = Instant::now();
                 scene.fill(
@@ -201,15 +231,19 @@ fn scroll_with<R: ImageRenderer>(shot: &Shot, frames: usize, scroll: f64) -> any
                     &Rect::new(0.0, 0.0, width as f64, height as f64),
                     AntiAliasing::Enabled,
                 );
-                paint_scene(scene, &mut inner, shot.scale as f64, width, height, 0, 0);
+                paint_scene(scene, &mut inner, scale as f64, width, height, 0, 0);
                 scene_ms = at.elapsed().as_secs_f64() * 1000.0;
             },
-            &mut rgba,
+            &mut self.rgba,
         );
-        times.push(ScrollFrame { scene: scene_ms, raster: start.elapsed().as_secs_f64() * 1000.0 - scene_ms });
-        renderer.reset();
+        self.renderer.reset();
+        ScrollFrame { scene: scene_ms, raster: start.elapsed().as_secs_f64() * 1000.0 - scene_ms, fragments: blitz_paint::take_fragment_stats() }
     }
-    Ok((times, Image { width, height, rgba, boxes: Vec::new() }))
+
+    /// The last frame painted.
+    pub fn image(&self) -> Image {
+        Image { width: self.width, height: self.height, rgba: self.rgba.clone(), boxes: Vec::new() }
+    }
 }
 
 /// The middle of `values`, sorted: of an even count, the upper of its middle two.

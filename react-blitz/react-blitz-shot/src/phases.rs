@@ -90,6 +90,11 @@ pub struct Counts {
     pub glyph_runs: u32,
     /// Glyphs drawn; 0 on a renderer that does not count them.
     pub glyphs: u32,
+    /// Scroll containers whose content was built into the scene anew; 0 on a renderer that
+    /// keeps none (the CPU ones).
+    pub fragments_built: u32,
+    /// Scroll containers whose content was drawn from what an earlier frame built.
+    pub fragments_kept: u32,
 }
 
 impl Counts {
@@ -99,6 +104,13 @@ impl Counts {
         self.text_layouts += stats.text_layouts;
     }
 
+    /// Set what the paint just done built and kept.
+    pub fn take_fragments(&mut self) {
+        let fragments = blitz_paint::take_fragment_stats();
+        self.fragments_built = fragments.built;
+        self.fragments_kept = fragments.kept;
+    }
+
     pub fn json(&self) -> Value {
         json!({
             "styleTraversals": self.style_traversals,
@@ -106,6 +118,8 @@ impl Counts {
             "textLayouts": self.text_layouts,
             "glyphRuns": self.glyph_runs,
             "glyphs": self.glyphs,
+            "fragmentsBuilt": self.fragments_built,
+            "fragmentsKept": self.fragments_kept,
         })
     }
 }
@@ -114,8 +128,14 @@ impl fmt::Display for Counts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "style traversals {}, layout nodes {}, text layouts {}, glyph runs {}, glyphs {}",
-            self.style_traversals, self.layout_nodes, self.text_layouts, self.glyph_runs, self.glyphs
+            "style traversals {}, layout nodes {}, text layouts {}, glyph runs {}, glyphs {}, fragments built {}, kept {}",
+            self.style_traversals,
+            self.layout_nodes,
+            self.text_layouts,
+            self.glyph_runs,
+            self.glyphs,
+            self.fragments_built,
+            self.fragments_kept
         )
     }
 }

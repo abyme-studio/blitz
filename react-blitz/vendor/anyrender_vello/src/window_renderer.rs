@@ -181,6 +181,8 @@ pub struct VelloWindowRenderer {
 
     // Resources
     texture_handles: FxHashMap<ResourceId, ImageData>,
+    /// Pieces of scene kept between frames, in Vello's encoding (`PaintScene::end_fragment`).
+    fragments: FxHashMap<ResourceId, vello::Scene>,
 
     /// The device and renderer `warm` started building, until the first `resume` takes them.
     #[cfg(not(target_arch = "wasm32"))]
@@ -202,6 +204,7 @@ impl VelloWindowRenderer {
             window_handle: None,
             scene: VelloScene::new(),
             texture_handles: FxHashMap::default(),
+            fragments: FxHashMap::default(),
             #[cfg(not(target_arch = "wasm32"))]
             warm: None,
         }
@@ -526,6 +529,8 @@ impl WindowRenderer for VelloWindowRenderer {
             device_handle: Some(&render_surface.device_handle),
             texture_handles: Some(&mut self.texture_handles),
             pattern_scenes: Default::default(),
+            outer: Vec::new(),
+            fragments: Some(&mut self.fragments),
             cull_rect: Some(kurbo::Rect::new(
                 0.0,
                 0.0,
