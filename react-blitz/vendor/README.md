@@ -13,5 +13,9 @@ taken comes off; a folder with no fixes left is deleted with its patch line.
 - `stylesheets/rule_parser.rs`: `@container` parses under the pref
   `layout.css.container-queries.enabled`, which blitz-dom sets. Upstream parses it only with
   `feature = "gecko"`.
+- `properties/shorthands.toml`, `properties/shorthands.rs`: the `container` shorthand
+  (`container: page / inline-size`) parses under the same pref. Upstream has it for Gecko alone,
+  so a container named by the shorthand was no container, and its `@container page` rules never
+  applied.
 
 To see the fixes: `diff -r ~/.cargo/registry/src/*/stylo-0.24.0 vendor/stylo`.
