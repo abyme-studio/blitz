@@ -24,6 +24,19 @@ pub struct ReactDocumentConfig {
     pub query: String,
     /// The document's own settings; its `base_url` is set to the page's.
     pub document: DocumentConfig,
+    /// What the page's clock follows.
+    pub clock: Clock,
+}
+
+/// What the page's clock follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Clock {
+    /// Wall time, from when the document opened.
+    #[default]
+    Wall,
+    /// Set by the embedder ([`ReactDocument::set_time`]), starting at 0: CSS animations,
+    /// `requestAnimationFrame`, `performance.now()` and timers move only when it is set.
+    Stepped,
 }
 
 /// Blitz's [`Document`] over a `BaseDocument` and a [`ScriptEngine`] running React. The stock
@@ -61,6 +74,9 @@ impl<E: ScriptEngine> ReactDocument<E> {
             format!("{page_url}?{}", config.query)
         };
         let shared = Shared::new(doc, address);
+        if config.clock == Clock::Stepped {
+            shared.state.borrow_mut().clock = Some(0.0);
+        }
         engine.register(Box::new(Host(Rc::clone(&shared))));
 
         let entry_url = loader.resolve(&entry, &page_url)?;
@@ -95,6 +111,19 @@ impl<E: ScriptEngine> ReactDocument<E> {
             self.shared.doc.borrow().shell_provider.request_redraw();
         }
         ran
+    }
+
+    /// Seconds on the page's clock.
+    pub fn time(&self) -> f64 {
+        self.shared.now()
+    }
+
+    /// Set a stepped clock to `seconds`. A wall clock is left alone.
+    pub fn set_time(&mut self, seconds: f64) {
+        let mut state = self.shared.state.borrow_mut();
+        if state.clock.is_some() {
+            state.clock = Some(seconds);
+        }
     }
 
     /// Whether JS asked for another frame.
