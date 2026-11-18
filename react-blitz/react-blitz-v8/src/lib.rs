@@ -96,6 +96,24 @@ impl V8Engine {
         Ok(())
     }
 
+    /// Run what is ready, and what falls due within a moment, never past the deadline. Answers
+    /// whether work was left when it stopped.
+    fn run_loop(&mut self, deadline: Instant) -> bool {
+        let runtime = &mut self.runtime;
+        let until = deadline.min(Instant::now() + std::time::Duration::from_millis(2));
+        self.tokio.block_on(async {
+            let run = runtime.run_event_loop(PollEventLoopOptions::default());
+            match tokio::time::timeout_at(until.into(), run).await {
+                Ok(Err(e)) => {
+                    eprintln!("react-blitz: {e}");
+                    false
+                }
+                Ok(Ok(())) => false,
+                Err(_) => true,
+            }
+        })
+    }
+
     fn call(&mut self, name: &'static str, source: &'static str) {
         let _guard = self.tokio.enter();
         if let Err(e) = self.runtime.execute_script(name, source) {
@@ -154,19 +172,16 @@ impl ScriptEngine for V8Engine {
     }
 
     fn pump(&mut self, deadline: Instant) -> bool {
-        let runtime = &mut self.runtime;
-        // Run what is ready, and what falls due within a moment, never past the deadline.
-        let until = deadline.min(Instant::now() + std::time::Duration::from_millis(2));
-        self.tokio.block_on(async {
-            let run = runtime.run_event_loop(PollEventLoopOptions::default());
-            match tokio::time::timeout_at(until.into(), run).await {
-                Ok(Err(e)) => {
-                    eprintln!("react-blitz: {e}");
-                    false
-                }
-                Ok(Ok(())) => false,
-                Err(_) => true,
+        let mut ran = self.run_loop(deadline);
+        // A stepped clock's timers, one at a time, each followed by its microtasks.
+        while Instant::now() < deadline {
+            self.call("react-blitz:timers", "globalThis.__reactBlitzTimers()");
+            if self.runtime.op_state().borrow_mut().try_take::<ops::TimerRan>().is_none() {
+                break;
             }
-        })
+            ran = true;
+            self.run_loop(deadline);
+        }
+        ran
     }
 }
