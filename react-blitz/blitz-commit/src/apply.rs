@@ -36,8 +36,8 @@ impl From<DecodeError> for ApplyError {
 /// The nodes JS knows by id, and which events each listens for.
 #[derive(Default)]
 pub struct Tree {
-    /// Blitz's node for each JS id, as Dioxus keeps its element ids.
-    nodes: Vec<Option<NodeId>>,
+    /// Blitz's node for each JS id. Host-assigned IDs occupy the upper half of the u32 range.
+    nodes: HashMap<u32, NodeId>,
     /// The JS id of each node JS knows.
     ids: HashMap<NodeId, u32>,
     /// The events each node's props handle.
@@ -51,11 +51,7 @@ impl Tree {
 
     /// Give JS the id `js` for a node it did not create, such as the container React renders into.
     pub fn bind(&mut self, js: u32, node: NodeId) {
-        let index = js as usize;
-        if self.nodes.len() <= index {
-            self.nodes.resize(index + 1, None);
-        }
-        if let Some(old) = self.nodes[index].replace(node) {
+        if let Some(old) = self.nodes.insert(js, node) {
             self.ids.remove(&old);
         }
         self.ids.insert(node, js);
@@ -63,7 +59,7 @@ impl Tree {
 
     /// The Blitz node JS calls `js`.
     pub fn node(&self, js: u32) -> Option<NodeId> {
-        self.nodes.get(js as usize).copied().flatten()
+        self.nodes.get(&js).copied()
     }
 
     /// The JS id of a Blitz node, when JS knows it.
@@ -175,7 +171,7 @@ impl Tree {
                 let (nodes, ids, listeners) = (&mut self.nodes, &mut self.ids, &mut self.listeners);
                 m.remove_and_drop_node_with(node, &mut |dropped| {
                     if let Some(js) = ids.remove(&dropped) {
-                        nodes[js as usize] = None;
+                        nodes.remove(&js);
                     }
                     listeners.remove(&dropped);
                 });
