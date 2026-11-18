@@ -191,6 +191,30 @@ fn a_wheel_ticks_frame_says_six_phases_that_sum_to_its_busy() {
     w.close();
 }
 
+/// Three wheel ticks before one frame: the offset holds all three, and a scroll listener ran once.
+#[test]
+fn ticks_before_a_frame_scroll_once() {
+    let dist = bundle("scroll");
+    let mut w = Window::open(&dist, "scroll");
+    w.send(json!({ "cmd": "watch", "selectors": [".count", ".top"] }));
+    w.frame();
+    assert_eq!((w.width(".count"), w.width(".top")), (0.0, 0.0));
+    for dy in [10, 20, 30] {
+        w.send(json!({ "cmd": "wheel", "x": 100, "y": 50, "dx": 0, "dy": dy }));
+    }
+    // The frame after the ticks sends the scroll; one more shows what the listener set.
+    w.frame();
+    w.frame();
+    assert_eq!(w.width(".top"), 60.0, "the offset the listener read");
+    assert_eq!(w.width(".count"), 10.0, "the listener's runs, 10 px each");
+    // A tick a frame is a run a frame.
+    w.send(json!({ "cmd": "wheel", "x": 100, "y": 50, "dx": 0, "dy": 5 }));
+    w.frame();
+    w.frame();
+    assert_eq!((w.width(".count"), w.width(".top")), (20.0, 65.0));
+    w.close();
+}
+
 #[test]
 fn two_runs_give_identical_shots() {
     let dist = bundle("window");
