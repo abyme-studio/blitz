@@ -294,6 +294,8 @@ pub struct BaseDocument {
     // TODO: collapse animating state into a bitflags
     /// Whether there are active CSS animations/transitions (so we should re-render every frame)
     pub(crate) has_active_animations: bool,
+    /// The animation time of the last style pass: animating nodes restyle when it moves
+    pub(crate) animation_time: Option<f64>,
     /// Whether there is a `<canvas>` element in the DOM (so we should re-render every frame)
     pub(crate) has_canvas: bool,
     /// Whether there are subdocuments that are animating (so we should re-render every frame)
@@ -493,6 +495,7 @@ impl BaseDocument {
             active_node_id: None,
             mousedown_node_id: None,
             has_active_animations: false,
+            animation_time: None,
             subdoc_is_animating: false,
             has_canvas: false,
             sub_document_nodes: HashSet::new(),
@@ -2169,6 +2172,13 @@ impl BaseDocument {
         self.get_node_mut(node_id)
             .and_then(|node| node.element_data_mut())
             .and_then(|el| el.sub_doc_data_mut())
+    }
+
+    /// The animation time the document was last resolved at, if it has been. An embedder that
+    /// resolves between frames (for a script's measure) passes it again, so animations move only
+    /// with the frame's own resolve.
+    pub fn animation_time(&self) -> Option<f64> {
+        self.animation_time
     }
 
     pub fn is_animating(&self) -> bool {
