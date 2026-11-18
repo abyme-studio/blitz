@@ -168,6 +168,8 @@ fn scroll_with<R: ImageRenderer>(shot: &Shot, frames: usize, scroll: f64) -> any
         doc.handle_ui_event(UiEvent::Wheel(BlitzWheelEvent {
             // Blitz's wheel, as the window makes it from winit's: positive scrolls up.
             delta: BlitzWheelDelta::Pixels(0.0, -scroll),
+            phase: Default::default(),
+            source: Default::default(),
             coords: PointerCoords {
                 screen_x: x,
                 screen_y: y,
