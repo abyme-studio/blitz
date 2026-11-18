@@ -199,7 +199,18 @@ impl HostCalls for Host {
         if doc.try_root_element().is_some_and(|r| r.id == node) {
             doc.set_viewport_scroll(blitz_dom::Point { x, y });
         } else {
+            let before = doc.get_node(node).map(|n| *n.scroll_offset());
             doc.scroll_to(node, x, y, ScrollBehavior::Auto);
+            let after = doc.get_node(node).map(|n| *n.scroll_offset());
+            // Blitz fires no event for a scroll the page sets: it goes in the next frame batch,
+            // as a `scroll` event there, like one the pointer made.
+            if before != after {
+                let mut state = self.0.state.borrow_mut();
+                if !state.scrolled.contains(&node) {
+                    state.scrolled.push(node);
+                }
+                state.frame_wanted = true;
+            }
         }
     }
 
