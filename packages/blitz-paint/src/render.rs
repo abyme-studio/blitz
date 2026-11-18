@@ -130,6 +130,8 @@ pub struct BlitzDomPainter<'dom, 'a> {
     #[cfg(feature = "scrollbars")]
     pub(crate) scrollbar_drag_target: Option<blitz_dom::node::ScrollbarRef>,
     pub(crate) layer_manager: LayerManager,
+    /// The scroll containers' content kept between frames.
+    pub(crate) kept: crate::kept::KeptScene,
     /// Reusable scratch allocations shared by all text layouts painted for this document.
     pub(crate) draw_text_context: RefCell<DrawTextContext>,
     /// Cached selection ranges for O(1) lookup: node_id -> (start_offset, end_offset)
@@ -190,6 +192,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             #[cfg(feature = "scrollbars")]
             scrollbar_drag_target: dom.scrollbar_drag_target(),
             layer_manager,
+            kept: crate::kept::KeptScene::new(dom, scale),
             draw_text_context: RefCell::new(DrawTextContext::default()),
             selection_ranges,
             custom_widget_scenes,
@@ -294,6 +297,16 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         }
     }
 
+    /// The part of the scene being drawn into: the viewport, or what the fragment being
+    /// built holds, which is drawn again later somewhere else.
+    fn scene_bounds(&self) -> Rect {
+        let screen = self
+            .kept
+            .band()
+            .unwrap_or(Rect::new(0.0, 0.0, self.width as f64, self.height as f64));
+        screen + Vec2::new(self.initial_x, self.initial_y)
+    }
+
     fn node_transform(&self, node: &Node, parent: Affine) -> Affine {
         let location = node.final_layout().location;
         parent
@@ -324,12 +337,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             BlendMode::default(),
             1.0 - f32::EPSILON,
             Affine::IDENTITY,
-            &Rect::new(
-                self.initial_x,
-                self.initial_y,
-                self.initial_x + self.width as f64,
-                self.initial_y + self.height as f64,
-            ),
+            &self.scene_bounds(),
             None,
             None,
             |scene| anyrender_svg::render_svg_tree(scene, tree, transform),
@@ -457,6 +465,13 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         let Some(styles) = node.primary_styles() else {
             return;
         };
+
+        // A sticky box moves against the content around it as a scroller above it scrolls:
+        // content that holds one is not kept between frames. Said before any culling, so one
+        // out of sight says it too.
+        if styles.get_box().position == style::computed_values::position::T::Sticky {
+            self.kept.unkeepable();
+        }
 
         // Hide inputs with type=hidden
         // Implemented here rather than using the style engine for performance reasons
@@ -609,12 +624,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             blend,
             if isolate { 1.0 - f32::EPSILON } else { 1.0 },
             Affine::IDENTITY,
-            &Rect::new(
-                self.initial_x,
-                self.initial_y,
-                self.initial_x + self.width as f64,
-                self.initial_y + self.height as f64,
-            ),
+            &self.scene_bounds(),
             None,
             None,
         );
@@ -716,6 +726,23 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                                 };
 
                                 cx.transform = self.scrolled_transform(node, cx.transform);
+                                // A scroll container's content is kept between frames: a
+                                // scroll draws the kept fragment again, moved.
+                                let keeps = should_clip && !is_text_input;
+                                if keeps
+                                    && self.kept.append(scene, node, cx.transform, child_clip_rect)
+                                {
+                                    return;
+                                }
+                                let building = if keeps {
+                                    let scrollport = screen_transform
+                                        .transform_rect_bbox(clip.bounding_box());
+                                    self.kept.begin(scene, node, cx.transform, scrollport)
+                                } else {
+                                    None
+                                };
+                                let child_clip_rect =
+                                    building.as_ref().map_or(child_clip_rect, |b| b.band);
                                 cx.draw_image(scene);
                                 #[cfg(feature = "svg")]
                                 cx.draw_svg(scene);
@@ -727,6 +754,9 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                                 cx.draw_inline_layout(scene, content_position);
                                 cx.draw_marker(scene, content_position);
                                 cx.draw_children(scene, cx.transform, child_clip_rect);
+                                if let Some(building) = building {
+                                    self.kept.end(scene, node, building);
+                                }
                             },
                         );
 
@@ -1442,6 +1472,7 @@ impl ElementCx<'_, '_> {
     #[cfg(feature = "custom-widget")]
     fn draw_custom_widget(&self, scene: &mut impl PaintScene) {
         if let Some(widget_scene) = self.custom_widget_scene {
+            self.context.kept.unkeepable();
             let Point { x, y } = self.frame.content_box().origin();
             let transform = self.transform.then_translate(Vec2 { x, y });
 
@@ -1452,6 +1483,8 @@ impl ElementCx<'_, '_> {
 
     fn draw_sub_document(&self, scene: &mut impl PaintScene) {
         if let Some(sub_doc) = self.element.sub_doc_data().map(|doc| doc.inner()) {
+            // Another document's changes say nothing to this one's kept fragments.
+            self.context.kept.unkeepable();
             let scale = self.scale;
             let content_box = self.frame.content_box();
             let width = content_box.width() as u32;

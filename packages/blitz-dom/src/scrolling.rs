@@ -166,6 +166,19 @@ fn ease_in_out_cubic(t: f64) -> f64 {
 }
 
 impl BaseDocument {
+    /// `node_id`'s content scrolled. What the node paints of its own content only moved, so the
+    /// node is not stamped. A descendant hoisted out of it, into a stacking context above, is
+    /// painted by an ancestor at a place that follows this scroll, so the ancestors are; a
+    /// node that is a stacking context itself hoists nothing out.
+    fn mark_scrolled(&self, node_id: NodeId) {
+        if let Some(node) = self.nodes.get(node_id)
+            && node.stacking_context.is_none()
+            && let Some(parent) = node.parent
+        {
+            self.nodes.mark_paint_changed(parent);
+        }
+    }
+
     pub(crate) fn clamp_node_scroll_offset(&mut self, node_id: NodeId) {
         let node = &self.nodes[node_id];
         if !node.is_element()
@@ -185,6 +198,7 @@ impl BaseDocument {
         if clamped != current {
             *self.nodes[node_id].scroll_offset_mut() = clamped;
             self.nodes.bump_geometry_generation();
+            self.mark_scrolled(node_id);
         }
     }
 
@@ -194,6 +208,7 @@ impl BaseDocument {
         {
             layout.scroll_offset = Point::ZERO;
             self.nodes.bump_geometry_generation();
+            self.mark_scrolled(node_id);
         }
         if let ScrollAnimationState::ScrollTo(state) = &self.scroll_animation
             && state.target == ScrollTarget::Node(node_id)
@@ -468,6 +483,7 @@ impl BaseDocument {
                 let scroll_height = node.scroll_height();
                 let layout = *node.final_layout();
                 self.nodes.bump_geometry_generation();
+                self.mark_scrolled(node_id);
                 let event = BlitzScrollEvent {
                     scroll_top: offset.y,
                     scroll_left: offset.x,

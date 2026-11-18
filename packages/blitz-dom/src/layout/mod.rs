@@ -852,7 +852,16 @@ impl RoundTree for LayoutPassState<'_> {
     }
 
     fn set_final_layout(&mut self, node_id: NodeId, layout: &Layout) {
-        *self.node_from_id_mut(node_id).final_layout_mut() = *layout;
+        let node = self.node_from_id_mut(node_id);
+        let old = std::mem::replace(node.final_layout_mut(), *layout);
+        if old != *layout {
+            // A box that only moved is painted the same, somewhere else, by its parent.
+            let moved_only = Layout { location: layout.location, ..old } == *layout;
+            let from = if moved_only { node.parent } else { Some(node.id) };
+            if let Some(from) = from {
+                self.doc.nodes.mark_paint_changed(from);
+            }
+        }
         self.clamp_node_scroll_offset(dom_node_id(node_id));
     }
 
