@@ -17,11 +17,30 @@ on upstream touches none of them.
 - `vendor/`: patched copies of crates Blitz takes from crates.io (Stylo, Parley), until a release
   has the fix. `vendor/README.md` names each one's upstream pull request.
 
-## The rebase rule
+## Branches
 
-The fork's `main` is upstream's `main` plus this folder, plus one commit per fix to Blitz's own
-crates (`packages/*`), each one feature, as upstream asks. Rebase on upstream weekly, never merge. A
-carried fix drops out once upstream has it. Nothing fork-only lives outside `react-blitz/`.
+The fork keeps each fix to Blitz on its own branch, so each can go upstream as it stands.
+
+- `upstream/main`: Blitz's own main. Every branch below is cut from it.
+- `fix/<topic>`: one fix to Blitz's own crates (`packages/*`), one commit, standing alone, ready to
+  be a pull request. A fix to a vendored crate is `fix/stylo-<topic>` or `fix/parley-<topic>`, one
+  commit on top of the vendor copy.
+- `react-blitz`: this folder, never for upstream. Nothing fork-only lives outside `react-blitz/`.
+- `abyme`: `upstream/main`, then each fix in the order `fixes` lists, then `react-blitz`, rebuilt by
+  `recompose` (cherry-picks, never a merge) and force-pushed. abyme pins a sha on it, and each
+  pinned sha has a tag `pin/<short-sha>` so it stays reachable after the next rebuild.
+- `main`: frozen where it stood before this layout. Nothing is pushed to it.
+
+Rebuild `abyme` on each new fix and whenever upstream moves, weekly at least:
+
+```sh
+react-blitz/recompose --push   # rebase each branch on upstream/main, rebuild and push abyme
+react-blitz/recompose --pin    # the same, and tag the tip pin/<short-sha> for abyme to pin
+```
+
+A new fix: branch from `upstream/main`, commit once, push, add its name to `fixes`, recompose. A
+fix upstream has taken comes off `fixes`. A test under `react-blitz/` that needs a fix passes on
+`abyme`, not on `react-blitz` alone.
 
 ## Build
 
