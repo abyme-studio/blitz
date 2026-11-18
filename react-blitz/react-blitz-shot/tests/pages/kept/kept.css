@@ -1,0 +1,6 @@
+body { margin: 0; background: #f4f1ea; font: 12px sans-serif; display: flex; }
+.scroller { width: 150px; height: 100px; overflow-y: scroll; }
+.row { height: 20px; background: #1f6feb; color: white; }
+.row:nth-child(odd) { background: #2da44e; }
+/* Only the second scroller's: a scroll moves the first's rows under a pointer at rest. */
+#b .row:hover { background: #ffd33d; }
