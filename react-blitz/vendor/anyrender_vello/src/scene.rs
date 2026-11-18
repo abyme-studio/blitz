@@ -109,10 +109,12 @@ impl PaintScene for VelloScenePainter<'_, '_> {
         _filter: Option<Arc<Filter>>,
         _backdrop_filter: Option<Arc<Filter>>,
     ) {
+        let _encoding = crate::frame_times::Encoding::start();
         self.inner.push_layer(fill, blend, alpha, transform, clip);
     }
 
     fn push_clip_layer(&mut self, fill: Fill, transform: Affine, clip: &impl Shape) {
+        let _encoding = crate::frame_times::Encoding::start();
         self.inner.push_clip_layer(fill, transform, clip);
     }
 
@@ -123,6 +125,7 @@ impl PaintScene for VelloScenePainter<'_, '_> {
         transform: Affine,
         clip: &impl Shape,
     ) {
+        let _encoding = crate::frame_times::Encoding::start();
         let blend = BlendMode::new(Mix::Normal, Compose::DestIn);
 
         // Everything outside of the clip is masked out
@@ -142,6 +145,7 @@ impl PaintScene for VelloScenePainter<'_, '_> {
     }
 
     fn pop_layer(&mut self) {
+        let _encoding = crate::frame_times::Encoding::start();
         self.inner.pop_layer();
     }
 
@@ -154,6 +158,7 @@ impl PaintScene for VelloScenePainter<'_, '_> {
         shape: &impl Shape,
         _anti_aliasing: AntiAliasing,
     ) {
+        let _encoding = crate::frame_times::Encoding::start();
         let paint_ref: anyrender::PaintRef<'a> = paint_ref.into();
         if let anyrender::Paint::Pattern(pattern) = paint_ref {
             let tile_scene = self.take_pattern_scene(pattern);
@@ -185,6 +190,7 @@ impl PaintScene for VelloScenePainter<'_, '_> {
         shape: &impl Shape,
         _anti_aliasing: AntiAliasing,
     ) {
+        let _encoding = crate::frame_times::Encoding::start();
         let paint: anyrender::PaintRef<'a> = paint.into();
         if let anyrender::Paint::Pattern(pattern) = paint {
             let tile_scene = self.take_pattern_scene(pattern);
@@ -243,6 +249,7 @@ impl PaintScene for VelloScenePainter<'_, '_> {
         glyphs: impl Iterator<Item = anyrender::Glyph> + Clone,
         _anti_aliasing: AntiAliasing,
     ) {
+        let _encoding = crate::frame_times::Encoding::start();
         let paint: anyrender::PaintRef<'a> = paint.into();
         if let anyrender::Paint::Pattern(pattern) = paint {
             let tile_scene = self.take_pattern_scene(pattern);
@@ -267,6 +274,8 @@ impl PaintScene for VelloScenePainter<'_, '_> {
             return;
         }
         let brush_ref: BrushRef<'_> = paint.into();
+        let mut drawn = 0u32;
+        let glyphs = glyphs.inspect(|_| drawn += 1);
         self.inner
             .draw_glyphs(font)
             .font_size(font_size)
@@ -287,6 +296,10 @@ impl PaintScene for VelloScenePainter<'_, '_> {
                     y: g.y,
                 }),
             );
+        crate::frame_times::add(|t| {
+            t.glyph_runs += 1;
+            t.glyphs += drawn;
+        });
     }
 
     fn draw_box_shadow(
@@ -299,6 +312,7 @@ impl PaintScene for VelloScenePainter<'_, '_> {
         color: Color,
         kind: anyrender::BoxShadowKind,
     ) {
+        let _encoding = crate::frame_times::Encoding::start();
         let geometry = anyrender::BoxShadowGeometry::new(box_shape, offset, spread, std_dev, kind);
         if geometry.std_dev == 0.0 {
             geometry.draw_unblurred(self, transform, color);
