@@ -25,3 +25,4 @@ blitz-commit = { path = "blitz-commit" }
 stylo = { path = "vendor/stylo" }
 anyrender = { path = "vendor/anyrender" }
 anyrender_vello = { path = "vendor/anyrender_vello" }
+vello_encoding = { path = "vendor/vello_encoding" }

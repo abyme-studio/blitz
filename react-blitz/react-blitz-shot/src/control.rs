@@ -29,7 +29,7 @@
 //!   ([`Phases`] says each; `encode` and `present` are 0, the CPU renderer timing no painter call
 //!   and there being no window). `paint` is the scene and the render, as it was first answered.
 //!   `counts` is how much ran ([`Counts`]):
-//!   `{"styleTraversals","layoutNodes","textLayouts","glyphRuns","glyphs","fragmentsBuilt","fragmentsKept"}`.
+//!   `{"styleTraversals","layoutNodes","textLayouts","glyphRuns","glyphs","glyphOutlines","fragmentsBuilt","fragmentsKept"}`.
 //! - `{"cmd":"quit"}`: answers `{"ok":true}` and closes.
 
 use std::io::{BufRead, BufReader, Write};
