@@ -177,6 +177,11 @@ impl Tree {
                 });
             }
             Op::Listen { id, event, on } => {
+                // A dropped node has no listeners: taking one off it is nothing, and the rest
+                // of the commit still applies.
+                if !on && self.node(id).is_none() {
+                    return Ok(());
+                }
                 let node = self.get(id, index)?;
                 let events = self.listeners.entry(node).or_default();
                 let has = events.iter().position(|e| e == event);
