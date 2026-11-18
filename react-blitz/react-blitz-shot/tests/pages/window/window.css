@@ -1,0 +1,10 @@
+body { margin: 0; background: #f4f1ea; font: 14px sans-serif; }
+.stage { position: relative; width: 320px; height: 200px; }
+.pane { position: absolute; left: 0; top: 0; height: 80px; background: #1f6feb; }
+.handle { position: absolute; top: 0; right: -4px; width: 8px; height: 80px; background: #ffd33d; }
+.button { position: absolute; left: 200px; top: 10px; width: 100px; height: 30px; background: #888; }
+.button.on { background: #2da44e; }
+.fade { position: absolute; left: 200px; top: 50px; opacity: 0.5; }
+.badge { width: 20px; height: 20px; background: #d1242f; opacity: 0.5; }
+@keyframes slide { from { margin-left: 0px; } to { margin-left: 600px; } }
+.slider { position: absolute; left: 0; top: 120px; width: 10px; height: 10px; background: #8250df; animation: slide 1s linear; }
