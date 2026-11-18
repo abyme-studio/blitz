@@ -111,11 +111,17 @@
       stepped.set(id, { at: ops.op_rb_now() + wait, delay: wait, cb, repeat, level });
       return id;
     }
-    const cb = typeof fn === "function" ? () => {
-      if (!repeat) timers.delete(id);
-      fn(...args);
-    } : () => {};
+    // The engine is told when each falls due, so an embedder turns the page then and not before.
+    const cb = () => {
+      if (repeat) ops.op_rb_timer_due(id, delay);
+      else {
+        timers.delete(id);
+        ops.op_rb_timer_due(id, -1);
+      }
+      if (typeof fn === "function") fn(...args);
+    };
     timers.set(id, core.createTimer(cb, ms, undefined, repeat, true));
+    ops.op_rb_timer_due(id, delay);
     return id;
   }
   function clear(id) {
@@ -124,6 +130,7 @@
     if (t) {
       core.cancelTimer(t);
       timers.delete(id);
+      ops.op_rb_timer_due(id, -1);
     }
   }
   g.__reactBlitzTimers = () => {
