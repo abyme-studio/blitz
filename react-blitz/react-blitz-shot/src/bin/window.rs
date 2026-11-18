@@ -355,6 +355,7 @@ impl<R: WindowRenderer + 'static> WindowRenderer for Timed<R> {
             phases.render = (drawn - scene - phases.present).max(0.0);
             counts.glyph_runs = gpu.glyph_runs;
             counts.glyphs = gpu.glyphs;
+            counts.glyph_outlines = gpu.glyph_outlines;
         }
         let since = self.last.map(|l| start.duration_since(l).as_secs_f64() * 1000.0);
         self.last = Some(start);
