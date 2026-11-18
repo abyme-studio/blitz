@@ -23,8 +23,10 @@
 //!   `{"frame","boxes":[{"selector","x","y","width","height","opacity"} | {"selector","missing":true}]}`,
 //!   the border box in CSS pixels from the viewport's top left, `opacity` its own times its ancestors'.
 //! - `{"cmd":"shot","path"}`: the last frame, as a PNG at `path`. Answers `{"path","width","height"}`.
-//! - `{"cmd":"busy"}`: the last frame's work in ms: `{"frame","js","style","layout","paint"}`. `js` holds
-//!   the input since the frame before, and any layout JS forced by reading it.
+//! - `{"cmd":"busy"}`: the last frame's work in ms, by phase:
+//!   `{"frame","input","turn","resolve","scene","raster","present","busy"}`, `busy` their sum
+//!   ([`Phases`] says each; `present` is 0, there being no window). And as it was first answered:
+//!   `{"js","style","layout","paint"}`, `js` the input and the turn, `paint` the scene and the raster.
 //! - `{"cmd":"quit"}`: answers `{"ok":true}` and closes.
 
 use std::io::{BufRead, BufReader, Write};
@@ -48,7 +50,8 @@ use react_blitz::{Clock, DistLoader, ReactDocument, ReactDocumentConfig};
 use react_blitz_v8::V8Engine;
 use serde_json::{Value, json};
 
-use crate::{Image, Shot, paint, root_attr, write_png};
+use crate::phases::Phases;
+use crate::{Image, Shot, paint_timed, root_attr, write_png};
 
 /// One 60 Hz frame, in seconds.
 pub const FRAME: f64 = 1.0 / 60.0;
@@ -56,15 +59,6 @@ pub const FRAME: f64 = 1.0 / 60.0;
 /// How long one turn of JS may run before the frame goes on without it: a guard against a page
 /// that never stops, not a budget a page meets.
 const TURN: Duration = Duration::from_secs(10);
-
-/// A frame's work, in ms.
-#[derive(Default, Clone, Copy)]
-struct Busy {
-    js: f64,
-    style: f64,
-    layout: f64,
-    paint: f64,
-}
 
 /// A watched selector's box after a frame.
 enum Watched {
@@ -83,7 +77,9 @@ pub struct Control {
     buttons: MouseEventButtons,
     /// JS's ms since the last frame: the input's.
     input_js: f64,
-    busy: Busy,
+    busy: Phases,
+    /// The part of the last frame's resolve that was style.
+    style: f64,
     image: Image,
     selectors: Vec<String>,
     boxes: Vec<Watched>,
@@ -120,7 +116,8 @@ impl Control {
             frame: 0,
             buttons: MouseEventButtons::None,
             input_js: 0.0,
-            busy: Busy::default(),
+            busy: Phases::default(),
+            style: 0.0,
             image: Image { width: 0, height: 0, rgba: Vec::new(), boxes: Vec::new() },
             selectors: Vec::new(),
             boxes: Vec::new(),
@@ -163,9 +160,10 @@ impl Control {
     /// One frame at the clock as it stands: JS's due work and frame callbacks, style, layout, paint.
     fn draw(&mut self) {
         let t = self.doc.time();
+        let input = std::mem::take(&mut self.input_js);
         let start = Instant::now();
         self.doc.run(TURN);
-        let js = ms(start) + std::mem::take(&mut self.input_js);
+        let turn = ms(start);
 
         let start = Instant::now();
         {
@@ -174,16 +172,13 @@ impl Control {
                 inner.resolve_stylist(t);
             }
         }
-        let style = ms(start);
-        let start = Instant::now();
+        self.style = ms(start);
         self.doc.inner_mut().resolve(t);
-        let layout = ms(start);
+        let resolve = ms(start);
 
-        let start = Instant::now();
-        let (width, height, rgba) = paint(&mut self.doc.inner_mut(), self.width, self.height, self.scale);
-        let paint = ms(start);
+        let (width, height, rgba, scene, raster) = paint_timed(&mut self.doc.inner_mut(), self.width, self.height, self.scale);
         self.image = Image { width, height, rgba, boxes: Vec::new() };
-        self.busy = Busy { js, style, layout, paint };
+        self.busy = Phases { input, turn, resolve, scene, raster, present: 0.0 };
         self.read_boxes();
     }
 
@@ -347,7 +342,13 @@ impl Control {
             }
             "busy" => {
                 let b = self.busy;
-                json!({ "frame": self.frame, "js": b.js, "style": b.style, "layout": b.layout, "paint": b.paint })
+                let mut answer = b.json();
+                answer["frame"] = json!(self.frame);
+                answer["js"] = json!(b.input + b.turn);
+                answer["style"] = json!(self.style);
+                answer["layout"] = json!(b.resolve - self.style);
+                answer["paint"] = json!(b.scene + b.raster);
+                answer
             }
             "quit" => ok,
             other => bail!("no command {other}: move, down, up, wheel, keydown, keyup, frame, watch, boxes, shot, busy, quit"),

@@ -150,7 +150,7 @@ fn drive_steers_the_window_frame_by_frame() {
     let after = x(&mut w);
     assert!((after - 10.0 * n).abs() < 0.01 && (after - before - 10.0).abs() < 0.01, "slide at {before} then {after}, frame {n}");
 
-    // busy says the frame's work.
+    // busy says the frame's work, as it was first answered.
     let busy = w.send(json!({ "cmd": "busy" }));
     for k in ["js", "style", "layout", "paint"] {
         assert!(busy[k].as_f64().is_some_and(|v| v >= 0.0), "{busy}");
@@ -164,6 +164,30 @@ fn drive_steers_the_window_frame_by_frame() {
     w.send(json!({ "cmd": "keydown", "key": "a", "code": "KeyA" }));
     w.send(json!({ "cmd": "keyup", "key": "a", "code": "KeyA" }));
     w.frame();
+    w.close();
+}
+
+/// One wheel tick's frame: six phases, each a number, adding up to its busy.
+#[test]
+fn a_wheel_ticks_frame_says_six_phases_that_sum_to_its_busy() {
+    let dist = bundle("window");
+    let mut w = Window::open(&dist, "phases");
+    w.frame();
+    w.send(json!({ "cmd": "wheel", "x": 100, "y": 100, "dx": 0, "dy": 40 }));
+    let frame = w.frame()["frame"].clone();
+    let busy = w.send(json!({ "cmd": "busy" }));
+    assert_eq!(busy["frame"], frame, "{busy}");
+    let phases: Vec<f64> = ["input", "turn", "resolve", "scene", "raster", "present"]
+        .iter()
+        .map(|k| busy[k].as_f64().unwrap_or_else(|| panic!("no {k} in {busy}")))
+        .collect();
+    assert!(phases.iter().all(|v| *v >= 0.0), "{busy}");
+    let sum: f64 = phases.iter().sum();
+    assert!((sum - busy["busy"].as_f64().unwrap()).abs() < 1e-9, "the six add to {sum}: {busy}");
+    // The wheel was input, the scene was built and turned into pixels, and no window took them.
+    assert!(busy["input"].as_f64().unwrap() > 0.0 && busy["scene"].as_f64().unwrap() > 0.0, "{busy}");
+    assert!(busy["raster"].as_f64().unwrap() > 0.0, "{busy}");
+    assert_eq!(busy["present"], 0.0, "{busy}");
     w.close();
 }
 
