@@ -30,6 +30,8 @@ pub struct HostState {
     pub frame_wanted: bool,
     /// A commit changed the document since a redraw was last asked for.
     pub changed: bool,
+    /// The document may have changed since a frame batch was last looked for: one may be owed.
+    pub owed: bool,
     /// When the last frame batch went to JS: on wall time a batch goes once a display frame.
     pub last_frame: Option<Instant>,
     pub address: String,
@@ -53,6 +55,7 @@ impl Shared {
                 scrolled: Vec::new(),
                 frame_wanted: false,
                 changed: false,
+                owed: false,
                 last_frame: None,
                 address,
                 started: Instant::now(),
@@ -132,6 +135,7 @@ impl HostCalls for Host {
         let mut state = self.0.state.borrow_mut();
         let mut doc = self.0.doc.borrow_mut();
         state.changed = true;
+        state.owed = true;
         if let Err(e) = state.tree.apply(&mut doc, ops, strings) {
             // The op itself, so the log says what named the node.
             let what = match &e {
