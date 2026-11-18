@@ -23,4 +23,5 @@ blitz-commit = { path = "blitz-commit" }
 # Stylo with the fork's fixes: vendor/README.md lists each one.
 [patch.crates-io]
 stylo = { path = "vendor/stylo" }
+anyrender = { path = "vendor/anyrender" }
 anyrender_vello = { path = "vendor/anyrender_vello" }
