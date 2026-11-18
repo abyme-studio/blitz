@@ -1,11 +1,10 @@
 // Where a frame's JS goes, by listener: on when the page's query holds `rb-times`. Each listener,
 // observer callback, frame callback and timer is timed, keyed by what it is and the start of its
-// source, and every two seconds one `rb-times` line says each key's runs and ms since the last.
+// source, and every two seconds, on a timer, one `rb-times` line says each key's runs and ms since the last.
 // Off, `timed` is one check and the call.
 let on: boolean | null = null;
 const sums = new Map<string, { n: number; ms: number }>();
 let frames = 0;
-let last = 0;
 
 function isOn(): boolean {
   if (on === null) {
@@ -34,21 +33,22 @@ export function timed<T>(kind: string, listener: unknown, fn: () => T): T {
   }
 }
 
-/** A frame went by: every two seconds, say the sums and start again. */
+/** A frame went by. */
 export function frameTimed(): void {
-  if (!isOn()) return;
-  frames++;
-  const now = performance.now();
-  if (now - last < 2000) return;
+  if (isOn()) frames++;
+}
+
+/** Say the sums and start again. */
+function say(): void {
   const rows = [...sums].map(([key, s]) => ({ key, n: s.n, ms: Math.round(s.ms * 100) / 100 })).sort((a, b) => b.ms - a.ms);
   if (rows.length) console.log(`rb-times ${JSON.stringify({ frames, rows })}`);
   sums.clear();
   frames = 0;
-  last = now;
 }
 
 function wrapTimers(): void {
   const g = globalThis as any;
+  g.setInterval?.(say, 2000);
   for (const name of ["setTimeout", "setInterval"]) {
     const real = g[name];
     if (typeof real !== "function") continue;
