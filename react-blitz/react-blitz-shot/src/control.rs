@@ -297,6 +297,8 @@ impl Control {
                 }
                 let event = BlitzWheelEvent {
                     delta,
+                    phase: Default::default(),
+                    source: Default::default(),
                     coords: self.coords(x, y),
                     buttons: self.buttons,
                     mods,
