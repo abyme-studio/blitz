@@ -128,6 +128,10 @@ pub struct Node {
     /// stacking context on its last (non-skipped) paint-tree build. Replayed
     /// when the subtree is skipped as clean. Empty for stacking-context roots.
     pub sc_contribution_cache: RefCell<ThinVec<HoistedPaintChild>>,
+    /// The paint clock (`NodeTree::paint_clock`) at which something this node or a descendant
+    /// paints last changed. A scroll of its own content does not count: that moves what is
+    /// painted, and changes none of it.
+    pub paint_stamp: Cell<u64>,
 
     // Flags
     pub flags: NodeFlags,
@@ -474,6 +478,7 @@ impl Node {
             paint_children: RefCell::new(None),
             stacking_context: None,
             sc_contribution_cache: RefCell::new(ThinVec::new()),
+            paint_stamp: Cell::new(0),
 
             flags: NodeFlags::empty(),
             out_of_flow: AtomicBool::new(false),
