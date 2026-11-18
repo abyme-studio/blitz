@@ -83,6 +83,7 @@ mod svg_attr_sizing;
 mod svg_background_size;
 mod text_selection_anonymous_block;
 mod text_transform;
+mod text_width;
 mod touch_action;
 mod touch_events;
 mod transform_2d_subset;
