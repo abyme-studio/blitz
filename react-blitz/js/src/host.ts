@@ -247,6 +247,8 @@ function runIdle(handles: number[]): void {
     cancelIdle(h);
     timed("idle callback", waiting.fn, waiting.fn);
   }
+  // One added since the frame waits for a frame of its own.
+  if (idleCallbacks.size) read().frame();
 }
 
 /** What the host sends once a frame, after layout. */
@@ -313,6 +315,9 @@ export function frame(batch: FrameBatch): void {
   frameCallbacks = new Map();
   for (const fn of run.values()) timed("frame callback", fn, () => fn(batch.time));
   // The frame's work is done: a task after it, behind every timer already due, is the idle time.
-  if (idleCallbacks.size) setTimeout(() => runIdle([...idleCallbacks.keys()]), 0);
+  if (idleCallbacks.size) {
+    const waiting = [...idleCallbacks.keys()];
+    setTimeout(() => runIdle(waiting), 0);
+  }
   frameTimed();
 }
