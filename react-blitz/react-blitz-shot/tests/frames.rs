@@ -18,7 +18,7 @@ fn bundle(name: &str) -> PathBuf {
 
 /// The numbers before each ` ms` on a line.
 fn ms(line: &str) -> Vec<f64> {
-    line.split(" ms").filter_map(|part| part.rsplit(' ').next()?.parse().ok()).collect()
+    line.split(';').next().unwrap_or(line).split(" ms").filter_map(|part| part.rsplit(' ').next()?.parse().ok()).collect()
 }
 
 #[test]

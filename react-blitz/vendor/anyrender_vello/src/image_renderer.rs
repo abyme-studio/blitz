@@ -13,6 +13,8 @@ pub struct VelloImageRenderer {
     vello_renderer: VelloRenderer,
     scene: VelloScene,
     texture_handles: FxHashMap<ResourceId, ImageData>,
+    /// Pieces of scene kept between frames, in Vello's encoding (`PaintScene::end_fragment`).
+    fragments: FxHashMap<ResourceId, vello::Scene>,
 }
 
 impl VelloImageRenderer {
@@ -53,6 +55,7 @@ impl VelloImageRenderer {
             vello_renderer,
             scene: VelloScene::new(),
             texture_handles: FxHashMap::default(),
+            fragments: FxHashMap::default(),
         }
     }
 }
@@ -97,6 +100,8 @@ impl ImageRenderer for VelloImageRenderer {
             device_handle: Some(&self.buffer_renderer.device_handle),
             texture_handles: Some(&mut self.texture_handles),
             pattern_scenes: Default::default(),
+            outer: Vec::new(),
+            fragments: Some(&mut self.fragments),
             cull_rect: {
                 let size = self.buffer_renderer.size();
                 Some(Rect::new(0.0, 0.0, size.width as f64, size.height as f64))
