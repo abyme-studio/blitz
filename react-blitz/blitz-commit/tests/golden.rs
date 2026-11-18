@@ -8,7 +8,7 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use blitz_commit::Tree;
+use blitz_commit::{OpCode, Tree};
 use blitz_dom::{BaseDocument, NodeData, NodeId};
 use blitz_test_harness::Harness;
 
@@ -126,4 +126,27 @@ fn tree() {
 #[test]
 fn listen() {
     run("listen");
+}
+
+/// A listener taken off a node that was dropped is nothing: the ops after it still apply.
+#[test]
+fn a_listener_off_a_dropped_node_is_nothing() {
+    let words = |w: &[u32]| w.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let strings = |s: &[&str]| {
+        s.iter()
+            .flat_map(|x| [&(x.len() as u32).to_le_bytes()[..], x.as_bytes()].concat())
+            .collect::<Vec<u8>>()
+    };
+    let mut harness = Harness::from_html("<html><body></body></html>");
+    let mut tree = Tree::new();
+    let body = harness.query("body").unwrap();
+    tree.bind(1, body);
+    let mut doc = harness.base_mut();
+    // Listen(38, "scroll", off), where 38 was never made; then SetAttr(1, "id", "after").
+    let ops = words(&[OpCode::Listen as u32, 38, 0, 0, OpCode::SetAttr as u32, 1, 1, 2]);
+    tree.apply(&mut doc, &ops, &strings(&["scroll", "id", "after"])).unwrap();
+    assert_eq!(doc.get_node(body).unwrap().attr(blitz_dom::local_name!("id")), Some("after"));
+    // Put on a node that does not exist, it is still an error.
+    let ops = words(&[OpCode::Listen as u32, 38, 0, 1]);
+    assert!(tree.apply(&mut doc, &ops, &strings(&["scroll"])).is_err());
 }
