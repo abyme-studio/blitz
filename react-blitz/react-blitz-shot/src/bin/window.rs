@@ -1,5 +1,5 @@
 //! `react-blitz-window <dist> <query> [--control <socket>] [--size WxH] [--scale N]
-//! [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu] [--bare]`
+//! [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu|hybrid] [--bare]`
 //!
 //! Without `--control`: `blitz-shell` with a `ReactDocument` over the build, on wall time, painted
 //! by Vello's GPU renderer or, with `--renderer cpu`, its CPU one (the shot's), into a window; each
@@ -21,6 +21,7 @@ use anyhow::{Context, bail};
 use anyrender::{ImageRenderer, RenderContext, WindowHandle, WindowRenderer};
 use anyrender_vello::VelloWindowRenderer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
+use anyrender_vello_gpu::VelloGpuWindowRenderer;
 use blitz_dom::{BaseDocument, DocGuard, DocGuardMut, Document, DocumentConfig};
 use blitz_shell::{BlitzApplication, BlitzShellProxy, WindowConfig, create_default_event_loop};
 use blitz_traits::events::UiEvent;
@@ -32,7 +33,7 @@ use react_blitz_shot::phases::Phases;
 use react_blitz_v8::V8Engine;
 
 const USAGE: &str = "usage: react-blitz-window <dist> <query> [--control <socket>] [--size WxH] \
-[--scale N] [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu] [--bare]";
+[--scale N] [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu|hybrid] [--bare]";
 
 fn main() -> ExitCode {
     match run() {
@@ -53,7 +54,7 @@ fn run() -> anyhow::Result<()> {
     let mut timeout = 30.0;
     let mut control = None;
     // The GPU by default: it has no copy of the frame to the window, a third of a scroll frame's work.
-    let (mut gpu, mut bare) = (true, false);
+    let (mut renderer, mut bare) = (Renderer::Gpu, false);
     while let Some(arg) = args.next() {
         let mut value = |flag: &str| args.next().with_context(|| format!("{flag} needs a value\n{USAGE}"));
         match arg.as_str() {
@@ -74,10 +75,11 @@ fn run() -> anyhow::Result<()> {
             }
             "--page" => page = value("--page")?,
             "--renderer" => {
-                gpu = match value("--renderer")?.as_str() {
-                    "cpu" => false,
-                    "gpu" => true,
-                    other => bail!("--renderer is cpu or gpu, not {other}"),
+                renderer = match value("--renderer")?.as_str() {
+                    "cpu" => Renderer::Cpu,
+                    "gpu" => Renderer::Gpu,
+                    "hybrid" => Renderer::Hybrid,
+                    other => bail!("--renderer is cpu, gpu or hybrid, not {other}"),
                 }
             }
             "--bare" => bare = true,
@@ -99,12 +101,21 @@ fn run() -> anyhow::Result<()> {
     };
     match control {
         Some(socket) => serve(Control::open(&shot)?, &socket),
-        None => window(&shot, gpu, bare),
+        None => window(&shot, renderer, bare),
     }
 }
 
+/// What draws the window: Vello's compute passes on the GPU, its strips on the CPU with one GPU
+/// pass (`hybrid`), or its CPU renderer.
+#[derive(Clone, Copy)]
+enum Renderer {
+    Gpu,
+    Hybrid,
+    Cpu,
+}
+
 /// The page in a window, on wall time; `bare`, an empty document in its place.
-fn window(shot: &Shot, gpu: bool, bare: bool) -> anyhow::Result<()> {
+fn window(shot: &Shot, renderer: Renderer, bare: bool) -> anyhow::Result<()> {
     let document = DocumentConfig {
         viewport: Some(shot.viewport()),
         ..Default::default()
@@ -132,14 +143,22 @@ fn window(shot: &Shot, gpu: bool, bare: bool) -> anyhow::Result<()> {
     let attributes = winit::window::WindowAttributes::default()
         .with_title("react-blitz-window")
         .with_surface_size(winit::dpi::LogicalSize::new(shot.width, shot.height));
-    if gpu {
-        let mut application = BlitzApplication::new(proxy, receiver);
-        application.add_window(WindowConfig::with_attributes(doc, Timed::new(VelloWindowRenderer::new()), attributes));
-        event_loop.run_app(application)?;
-    } else {
-        let mut application = BlitzApplication::new(proxy, receiver);
-        application.add_window(WindowConfig::with_attributes(doc, Timed::new(Soft::new()), attributes));
-        event_loop.run_app(application)?;
+    match renderer {
+        Renderer::Gpu => {
+            let mut application = BlitzApplication::new(proxy, receiver);
+            application.add_window(WindowConfig::with_attributes(doc, Timed::new(VelloWindowRenderer::new()), attributes));
+            event_loop.run_app(application)?;
+        }
+        Renderer::Hybrid => {
+            let mut application = BlitzApplication::new(proxy, receiver);
+            application.add_window(WindowConfig::with_attributes(doc, Timed::new(VelloGpuWindowRenderer::new()), attributes));
+            event_loop.run_app(application)?;
+        }
+        Renderer::Cpu => {
+            let mut application = BlitzApplication::new(proxy, receiver);
+            application.add_window(WindowConfig::with_attributes(doc, Timed::new(Soft::new()), attributes));
+            event_loop.run_app(application)?;
+        }
     }
     Ok(())
 }
