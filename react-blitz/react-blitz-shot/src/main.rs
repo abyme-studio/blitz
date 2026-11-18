@@ -1,5 +1,5 @@
 //! `react-blitz-shot <dist> <query> <out.png> --size WxH --scale N [--scheme light|dark]
-//! [--page index.html] [--timeout SECONDS]`
+//! [--page index.html] [--timeout SECONDS] [--boxes boxes.json]`
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -7,10 +7,10 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 use blitz_traits::shell::ColorScheme;
-use react_blitz_shot::{Shot, shoot, write_png};
+use react_blitz_shot::{Shot, boxes_json, shoot, write_png};
 
 const USAGE: &str = "usage: react-blitz-shot <dist> <query> <out.png> --size WxH --scale N \
-[--scheme light|dark] [--page index.html] [--timeout SECONDS]";
+[--scheme light|dark] [--page index.html] [--timeout SECONDS] [--boxes boxes.json]";
 
 fn main() -> ExitCode {
     match run() {
@@ -29,6 +29,7 @@ fn run() -> anyhow::Result<()> {
     let mut scheme = ColorScheme::Light;
     let mut page = "index.html".to_string();
     let mut timeout = 30.0;
+    let mut boxes = None;
     while let Some(arg) = args.next() {
         let mut value = |flag: &str| args.next().with_context(|| format!("{flag} needs a value\n{USAGE}"));
         match arg.as_str() {
@@ -47,6 +48,7 @@ fn run() -> anyhow::Result<()> {
                 }
             }
             "--page" => page = value("--page")?,
+            "--boxes" => boxes = Some(PathBuf::from(value("--boxes")?)),
             "--timeout" => timeout = value("--timeout")?.parse().context("--timeout is seconds")?,
             flag if flag.starts_with("--") => bail!("no flag {flag}\n{USAGE}"),
             _ => plain.push(arg),
@@ -64,5 +66,8 @@ fn run() -> anyhow::Result<()> {
         timeout: Duration::from_secs_f64(timeout),
     };
     let image = shoot(&shot)?;
+    if let Some(path) = boxes {
+        std::fs::write(&path, boxes_json(&image.boxes)).with_context(|| format!("writing {}", path.display()))?;
+    }
     write_png(&image, out.as_ref())
 }
