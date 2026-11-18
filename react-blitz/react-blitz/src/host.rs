@@ -30,6 +30,9 @@ pub struct HostState {
     pub frame_wanted: bool,
     pub address: String,
     pub started: Instant,
+    /// The page's clock in seconds when it is stepped (`Clock::Stepped`): it moves only when the
+    /// embedder sets it, never on wall time.
+    pub clock: Option<f64>,
     /// Commits that did not apply, for a test or a log to read.
     pub errors: Vec<String>,
 }
@@ -47,14 +50,17 @@ impl Shared {
                 frame_wanted: false,
                 address,
                 started: Instant::now(),
+                clock: None,
                 errors: Vec::new(),
             }),
         })
     }
 
-    /// Seconds since the document started: the animation clock.
+    /// Seconds on the page's clock: the stepped clock when there is one, else since the document
+    /// started. CSS animations, `requestAnimationFrame`'s time and `performance.now()` all read it.
     pub fn now(&self) -> f64 {
-        self.state.borrow().started.elapsed().as_secs_f64()
+        let state = self.state.borrow();
+        state.clock.unwrap_or_else(|| state.started.elapsed().as_secs_f64())
     }
 
     /// Resolve style and layout if anything is dirty.
@@ -332,5 +338,13 @@ impl HostCalls for Host {
 
     fn log(&mut self, level: &str, text: &str) {
         eprintln!("[js {level}] {text}");
+    }
+
+    fn now(&mut self) -> f64 {
+        self.0.now() * 1000.0
+    }
+
+    fn stepped(&mut self) -> bool {
+        self.0.state.borrow().clock.is_some()
     }
 }
