@@ -43,6 +43,7 @@ pub fn open_dist(dist: &Path) -> Page {
                 viewport: Some(Viewport::new(800, 600, 1.0, ColorScheme::Light)),
                 ..Default::default()
             },
+            clock: Default::default(),
         },
         engine,
     )

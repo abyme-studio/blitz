@@ -1,6 +1,9 @@
 //! Paint a built React page offscreen: a `ReactDocument` with no window, run until its root
 //! element has `data-preview-ready`, painted by `blitz_paint::paint_scene` into Vello's CPU
-//! renderer, the paint path the window uses.
+//! renderer, the paint path the window uses. [`control`] is `react-blitz-window --control`'s
+//! stepped page, steered over a socket.
+
+pub mod control;
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -70,6 +73,7 @@ pub fn shoot(shot: &Shot) -> anyhow::Result<Image> {
                 viewport: Some(Viewport::new(shot.width, shot.height, shot.scale, shot.scheme)),
                 ..Default::default()
             },
+            clock: Default::default(),
         },
         engine,
     )?;
@@ -99,9 +103,15 @@ pub fn shoot(shot: &Shot) -> anyhow::Result<Image> {
     doc.inner_mut().resolve(time + FRAME);
 
     let boxes = laid_boxes(&*doc.inner());
-    let width = (shot.width as f32 * shot.scale).round() as u32;
-    let height = (shot.height as f32 * shot.scale).round() as u32;
-    let mut inner = doc.inner_mut();
+    let (width, height, rgba) = paint(&mut doc.inner_mut(), shot.width, shot.height, shot.scale);
+    Ok(Image { width, height, rgba, boxes })
+}
+
+/// Paint the document's frame as it stands, on white, by `blitz_paint::paint_scene` into Vello's
+/// CPU renderer: `width` and `height` in CSS pixels; answers the device size and its RGBA.
+pub fn paint(doc: &mut blitz_dom::BaseDocument, width: u32, height: u32, scale: f32) -> (u32, u32, Vec<u8>) {
+    let width = (width as f32 * scale).round() as u32;
+    let height = (height as f32 * scale).round() as u32;
     let rgba = render_to_buffer::<VelloCpuImageRenderer, _>(
         |scene| {
             scene.fill(
@@ -112,12 +122,12 @@ pub fn shoot(shot: &Shot) -> anyhow::Result<Image> {
                 &Rect::new(0.0, 0.0, width as f64, height as f64),
                 AntiAliasing::Enabled,
             );
-            paint_scene(scene, &mut inner, shot.scale as f64, width, height, 0, 0);
+            paint_scene(scene, doc, scale as f64, width, height, 0, 0);
         },
         width,
         height,
     );
-    Ok(Image { width, height, rgba, boxes })
+    (width, height, rgba)
 }
 
 /// The frame's boxes and every element's under it, then each portal's: each element child of `body`
@@ -155,23 +165,7 @@ fn laid_boxes(doc: &blitz_dom::BaseDocument) -> Vec<LaidBox> {
         let after = kids.iter().position(|k| *k == holder).map_or(0, |i| i + 1);
         roots.extend(kids[after..].iter().enumerate().map(|(i, k)| (*k, format!("portal{i}"))));
     }
-    // Blitz can keep a box's containing block after that node is gone (a subtree hidden, then its
-    // parent replaced), and its bounding rect then panics: such a box is unlaid, 0×0 as a browser says.
-    let laid = |id: blitz_dom::NodeId| {
-        let mut at = doc.get_node(id).and_then(|n| n.containing_block());
-        while let Some(cb) = at {
-            let Some(node) = doc.get_node(cb) else { return false };
-            at = node.containing_block();
-        }
-        true
-    };
-    let rect = |id: blitz_dom::NodeId| {
-        if laid(id) {
-            doc.get_client_bounding_rect(id)
-        } else {
-            Some(blitz_dom::BoundingRect { x: 0.0, y: 0.0, width: 0.0, height: 0.0 })
-        }
-    };
+    let rect = |id: blitz_dom::NodeId| laid_rect(doc, id);
     let Some(origin) = rect(roots[0].0) else {
         return Vec::new();
     };
@@ -201,6 +195,20 @@ fn laid_boxes(doc: &blitz_dom::BaseDocument) -> Vec<LaidBox> {
     out
 }
 
+/// A node's border box from the viewport's top left, in CSS pixels. Blitz can keep a box's
+/// containing block after that node is gone (a subtree hidden, then its parent replaced), and its
+/// bounding rect then panics: such a box is unlaid, 0×0 as a browser says.
+pub(crate) fn laid_rect(doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId) -> Option<blitz_dom::BoundingRect> {
+    let mut at = doc.get_node(id).and_then(|n| n.containing_block());
+    while let Some(cb) = at {
+        let Some(node) = doc.get_node(cb) else {
+            return Some(blitz_dom::BoundingRect { x: 0.0, y: 0.0, width: 0.0, height: 0.0 });
+        };
+        at = node.containing_block();
+    }
+    doc.get_client_bounding_rect(id)
+}
+
 /// `boxes` as JSON: `[{"path","tag","x","y","width","height"}]`.
 pub fn boxes_json(boxes: &[LaidBox]) -> String {
     let rows: Vec<String> = boxes
@@ -210,7 +218,8 @@ pub fn boxes_json(boxes: &[LaidBox]) -> String {
     format!("[{}]", rows.join(","))
 }
 
-fn root_attr<D: blitz_dom::Document>(doc: &D, name: &str) -> Option<String> {
+/// The page's root element's attribute `name`.
+pub fn root_attr<D: blitz_dom::Document>(doc: &D, name: &str) -> Option<String> {
     let inner = doc.inner();
     let root = inner.try_root_element()?;
     root.attrs()?
