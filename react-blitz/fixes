@@ -1,0 +1,3 @@
+# The fix branches `abyme` carries, in the order react-blitz/recompose applies them.
+# One branch per line, each one commit off upstream/main. A fix upstream has taken comes off.
+fix/sticky-upstream-960
