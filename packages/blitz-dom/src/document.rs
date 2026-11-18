@@ -283,6 +283,8 @@ pub struct BaseDocument {
     /// When each scroll container's overlay scrollbars were last shown
     /// (scrolled, or the pointer left the thumb); drives their fade-out
     pub(crate) scrollbar_activity: HashMap<NodeId, Instant>,
+    /// Each query container's content-box size as its descendants were last styled against it.
+    pub(crate) container_sizes: HashMap<NodeId, (f32, f32)>,
     /// Whether and what kind of scroll animation is currently in progress
     pub(crate) scroll_animation: ScrollAnimationState,
     /// The trackpad scroll gesture under way, locked to its main axis
@@ -529,6 +531,7 @@ impl BaseDocument {
             drag_mode: DragMode::None,
             hovered_scrollbar: None,
             scrollbar_activity: HashMap::new(),
+            container_sizes: HashMap::new(),
             scroll_animation: ScrollAnimationState::None,
             wheel_gesture: WheelGesture::default(),
             text_selection: TextSelection::default(),
@@ -1038,6 +1041,7 @@ impl BaseDocument {
             self.drag_mode = DragMode::None;
         }
         self.scrollbar_activity.remove(&node_id);
+        self.container_sizes.remove(&node_id);
     }
 
     pub(crate) fn drop_node_ignoring_parent(&mut self, node_id: NodeId) -> Option<Node> {
