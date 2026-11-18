@@ -73,6 +73,7 @@ mod scale_change_overflow;
 mod scoped_query_selector;
 mod scrollbar_drag;
 mod scrollbars;
+mod scroller_bounding_rect;
 mod stale_dirty_descendants;
 mod stale_interaction_state;
 mod stale_node_mapping;
