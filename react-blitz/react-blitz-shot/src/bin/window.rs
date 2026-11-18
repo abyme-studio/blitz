@@ -120,6 +120,8 @@ fn window(shot: &Shot, renderer: Renderer, bare: bool) -> anyhow::Result<()> {
         viewport: Some(shot.viewport()),
         ..Default::default()
     };
+    // The GPU renderer first: it builds its pipelines on a thread while the page below boots.
+    let warm = matches!(renderer, Renderer::Gpu).then(|| VelloWindowRenderer::warm(anyrender_vello::VelloRendererOptions::default()));
     let doc: Box<dyn Document> = if bare {
         Box::new(BaseDocument::new(document))
     } else {
@@ -146,7 +148,7 @@ fn window(shot: &Shot, renderer: Renderer, bare: bool) -> anyhow::Result<()> {
     match renderer {
         Renderer::Gpu => {
             let mut application = BlitzApplication::new(proxy, receiver);
-            application.add_window(WindowConfig::with_attributes(doc, Timed::new(VelloWindowRenderer::new()), attributes));
+            application.add_window(WindowConfig::with_attributes(doc, Timed::new(warm.expect("made above for the GPU renderer")), attributes));
             event_loop.run_app(application)?;
         }
         Renderer::Hybrid => {
