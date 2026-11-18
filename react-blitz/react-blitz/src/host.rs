@@ -69,10 +69,14 @@ impl Shared {
         state.clock.unwrap_or_else(|| state.started.elapsed().as_secs_f64())
     }
 
-    /// Resolve style and layout if anything is dirty.
+    /// Resolve style and layout if anything is dirty. On wall time, at the animation time of the
+    /// document's last resolve: a script's measure reads the frame it was drawn in, as a browser's
+    /// does, and animations move with the window's redraw alone. A stepped clock is the frame's.
     pub fn resolve(&self) {
-        let now = self.now();
-        self.doc.borrow_mut().resolve(now);
+        let stepped = self.state.borrow().clock;
+        let mut doc = self.doc.borrow_mut();
+        let now = stepped.or_else(|| doc.animation_time()).unwrap_or_else(|| self.now());
+        doc.resolve(now);
     }
 
     /// The JS id of a node, given one when JS has not seen it.
