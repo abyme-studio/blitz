@@ -1,10 +1,12 @@
 //! `react-blitz-shot <dist> <query> <out.png> --size WxH --scale N [--scheme light|dark]
 //! [--page index.html] [--timeout SECONDS] [--boxes boxes.json] [--frames N --scroll PX
-//! [--renderer cpu|gpu]]`
+//! [--renderer cpu|gpu] [--fragments]]`
 //!
 //! With `--frames`: the page scrolled by a wheel of `--scroll` CSS pixels (down when positive)
-//! before each of N frames, each painted whole with no window; each frame's scene and raster ms and
-//! their medians go to stdout, the last frame to `<out.png>`.
+//! before each of N frames, each painted whole with no window; each frame's scene and raster ms, the
+//! scroll containers' fragments it built and kept, and the medians go to stdout, the last frame to
+//! `<out.png>`. `--fragments` keeps each scroll container's content between frames; without it every
+//! frame builds its scene whole.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -16,7 +18,7 @@ use react_blitz_shot::{Shot, boxes_json, median, scroll_frames, shoot, write_png
 
 const USAGE: &str = "usage: react-blitz-shot <dist> <query> <out.png> --size WxH --scale N \
 [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--boxes boxes.json] \
-[--frames N --scroll PX [--renderer cpu|gpu]]";
+[--frames N --scroll PX [--renderer cpu|gpu] [--fragments]]";
 
 fn main() -> ExitCode {
     match run() {
@@ -65,6 +67,7 @@ fn run() -> anyhow::Result<()> {
                     other => bail!("--renderer is cpu or gpu, not {other}"),
                 }
             }
+            "--fragments" => blitz_paint::keep_fragments(true),
             "--timeout" => timeout = value("--timeout")?.parse().context("--timeout is seconds")?,
             flag if flag.starts_with("--") => bail!("no flag {flag}\n{USAGE}"),
             _ => plain.push(arg),
@@ -84,7 +87,7 @@ fn run() -> anyhow::Result<()> {
     if let Some(frames) = frames {
         let (times, image) = scroll_frames(&shot, frames, scroll, gpu)?;
         for (i, t) in times.iter().enumerate() {
-            println!("frame {}: scene {:.2} ms, raster {:.2} ms", i + 1, t.scene, t.raster);
+            println!("frame {}: scene {:.2} ms, raster {:.2} ms; fragments built {}, kept {}", i + 1, t.scene, t.raster, t.fragments.built, t.fragments.kept);
         }
         println!(
             "median of {}: scene {:.2} ms, raster {:.2} ms",

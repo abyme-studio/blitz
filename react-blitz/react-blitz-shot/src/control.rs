@@ -29,7 +29,7 @@
 //!   ([`Phases`] says each; `encode` and `present` are 0, the CPU renderer timing no painter call
 //!   and there being no window). `paint` is the scene and the render, as it was first answered.
 //!   `counts` is how much ran ([`Counts`]):
-//!   `{"styleTraversals","layoutNodes","textLayouts","glyphRuns","glyphs"}`.
+//!   `{"styleTraversals","layoutNodes","textLayouts","glyphRuns","glyphs","fragmentsBuilt","fragmentsKept"}`.
 //! - `{"cmd":"quit"}`: answers `{"ok":true}` and closes.
 
 use std::io::{BufRead, BufReader, Write};
@@ -47,7 +47,6 @@ use blitz_traits::events::{
     BlitzKeyEvent, BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta, BlitzWheelEvent, KeyState,
     MouseEventButton, MouseEventButtons, PointerCoords, PointerDetails, UiEvent,
 };
-use blitz_traits::shell::Viewport;
 use keyboard_types::{Code, Key, Location, Modifiers};
 use react_blitz::{Clock, DistLoader, ReactDocument, ReactDocumentConfig};
 use react_blitz_v8::V8Engine;
@@ -185,6 +184,7 @@ impl Control {
         let (width, height, rgba, scene, render) = paint_timed(&mut self.doc.inner_mut(), self.width, self.height, self.scale);
         self.image = Image { width, height, rgba, boxes: Vec::new() };
         self.busy = Phases { scene, render, ..busy };
+        counts.take_fragments();
         self.counts = counts;
         self.read_boxes();
     }
