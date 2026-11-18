@@ -101,7 +101,7 @@ impl Control {
                 page: shot.page.clone(),
                 query: shot.query.clone(),
                 document: DocumentConfig {
-                    viewport: Some(Viewport::new(shot.width, shot.height, shot.scale, shot.scheme)),
+                    viewport: Some(shot.viewport()),
                     ..Default::default()
                 },
                 clock: Clock::Stepped,
