@@ -8,3 +8,4 @@ fix/inline-box-baseline
 fix/text-width
 fix/resolve-stats
 fix/scroll-only-frame
+fix/scene-fragments
