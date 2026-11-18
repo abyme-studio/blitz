@@ -7,3 +7,4 @@ fix/own-scroll-rect
 fix/inline-box-baseline
 fix/text-width
 fix/resolve-stats
+fix/scroll-only-frame
