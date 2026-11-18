@@ -19,3 +19,7 @@ blitz-paint = { path = "../packages/blitz-paint", default-features = false }
 blitz-shell = { path = "../packages/blitz-shell", default-features = false }
 blitz-test-harness = { path = "../packages/blitz-test-harness" }
 blitz-commit = { path = "blitz-commit" }
+
+# Stylo with the fork's fixes: vendor/README.md lists each one.
+[patch.crates-io]
+stylo = { path = "vendor/stylo" }
