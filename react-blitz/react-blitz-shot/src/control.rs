@@ -9,7 +9,8 @@
 //! - `{"cmd":"move","x","y"}`, `{"cmd":"down","x","y","button"?}`, `{"cmd":"up","x","y","button"?}`:
 //!   the pointer, in CSS pixels from the viewport's top left; `button` is `left` (the default),
 //!   `right` or `middle`. Answers `{"ok":true}`.
-//! - `{"cmd":"wheel","x","y","dx","dy","mode"?,"phase"?}`: a wheel at (x, y); `dx`, `dy` as the
+//! - `{"cmd":"wheel","x","y","dx","dy","mode"?,"phase"?}`: a wheel at (x, y), the pointer moved
+//!   there first when it is elsewhere (Blitz scrolls what the pointer is over); `dx`, `dy` as the
 //!   DOM's `deltaX`, `deltaY` (positive scrolls down and right), in `pixels` (the default) or `lines`.
 //!   `phase` is macOS's: `began`, `changed`, `ended`, `momentum` or `momentum-ended`; Blitz's wheel
 //!   carries no phase, so momentum is its deltas, sent as a trackpad sends them. Answers `{"ok":true}`.
@@ -75,6 +76,8 @@ pub struct Control {
     frame: u64,
     /// The pointer's buttons held, as a window keeps them.
     buttons: MouseEventButtons,
+    /// Where the pointer is, once anything has put it somewhere: Blitz scrolls what it hovers.
+    pointer: Option<(f32, f32)>,
     /// JS's ms since the last frame: the input's.
     input_js: f64,
     busy: Phases,
@@ -115,6 +118,7 @@ impl Control {
             scale: shot.scale,
             frame: 0,
             buttons: MouseEventButtons::None,
+            pointer: None,
             input_js: 0.0,
             busy: Phases::default(),
             style: 0.0,
@@ -241,6 +245,7 @@ impl Control {
                     "up" => self.buttons &= !MouseEventButtons::from(button),
                     _ => {}
                 }
+                self.pointer = Some((x, y));
                 let event = BlitzPointerEvent {
                     id: BlitzPointerId::Mouse,
                     is_primary: true,
@@ -272,6 +277,21 @@ impl Control {
                     "lines" => BlitzWheelDelta::Lines(-dx, -dy),
                     other => bail!("mode is pixels or lines, not {other}"),
                 };
+                // A wheel is at the pointer: one somewhere else moves there first, as a hand would.
+                if self.pointer != Some((x, y)) {
+                    self.pointer = Some((x, y));
+                    self.input(UiEvent::PointerMove(BlitzPointerEvent {
+                        id: BlitzPointerId::Mouse,
+                        is_primary: true,
+                        coords: self.coords(x, y),
+                        button: Default::default(),
+                        buttons: self.buttons,
+                        mods,
+                        details: PointerDetails::default(),
+                        element: Default::default(),
+                        active_pointers: Arc::new(AtomicRefCell::new(Vec::new())),
+                    }));
+                }
                 let event = BlitzWheelEvent {
                     delta,
                     coords: self.coords(x, y),
