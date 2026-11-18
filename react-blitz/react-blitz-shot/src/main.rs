@@ -4,7 +4,8 @@
 //!
 //! With `--frames`: the page scrolled by a wheel of `--scroll` CSS pixels (down when positive)
 //! before each of N frames, each painted whole with no window; each frame's scene and raster ms, the
-//! scroll containers' fragments it built and kept, and the medians go to stdout, the last frame to
+//! scroll containers' fragments it built and kept, the glyph outlines it encoded and text layouts
+//! it built, and the medians go to stdout, the last frame to
 //! `<out.png>`. `--fragments` keeps each scroll container's content between frames; without it every
 //! frame builds its scene whole.
 
@@ -87,7 +88,16 @@ fn run() -> anyhow::Result<()> {
     if let Some(frames) = frames {
         let (times, image) = scroll_frames(&shot, frames, scroll, gpu)?;
         for (i, t) in times.iter().enumerate() {
-            println!("frame {}: scene {:.2} ms, raster {:.2} ms; fragments built {}, kept {}", i + 1, t.scene, t.raster, t.fragments.built, t.fragments.kept);
+            println!(
+                "frame {}: scene {:.2} ms, raster {:.2} ms; fragments built {}, kept {}; glyph outlines {}, text layouts {}",
+                i + 1,
+                t.scene,
+                t.raster,
+                t.fragments.built,
+                t.fragments.kept,
+                t.glyph_outlines,
+                t.text_layouts
+            );
         }
         println!(
             "median of {}: scene {:.2} ms, raster {:.2} ms",
