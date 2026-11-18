@@ -719,8 +719,17 @@ impl<'a> TElement for BlitzNode<'a> {
         &self,
         _display: &style::values::specified::Display,
     ) -> euclid::default::Size2D<Option<app_units::Au>> {
-        // FIXME: Implement container queries. For now this effectively disables them without panicking.
-        Default::default()
+        // The content box of the last layout: style runs before layout, so a container whose
+        // size changed in a layout has its subtree styled again (`restyle_resized_containers`).
+        // Before its first layout it has no size, and Stylo falls back to the viewport.
+        let (width, height) = crate::node::content_box_size(self);
+        if width == 0.0 && height == 0.0 {
+            return Default::default();
+        }
+        euclid::default::Size2D::new(
+            Some(app_units::Au::from_f32_px(width)),
+            Some(app_units::Au::from_f32_px(height)),
+        )
     }
 
     fn each_custom_state<F>(&self, _callback: F)
