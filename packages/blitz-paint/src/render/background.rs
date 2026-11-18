@@ -415,6 +415,8 @@ impl ElementCx<'_, '_> {
     /// space to the scene for a fixed layer: the viewport, unaffected by any
     /// scrolling.
     fn fixed_positioning_area(&self) -> (Rect, Affine) {
+        // It stays put in the viewport while what holds it scrolls.
+        self.context.kept.unkeepable();
         let viewport_rect = Rect::new(
             0.0,
             0.0,

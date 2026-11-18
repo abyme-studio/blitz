@@ -1419,6 +1419,7 @@ impl BaseDocument {
     }
 
     pub fn load_resource(&mut self, res: ResourceLoadResponse) {
+        self.nodes.bump_paint_epoch();
         self.pending_critical_resources.remove(&res.request_id);
 
         let resource = match res.result {
@@ -2307,6 +2308,7 @@ impl BaseDocument {
         if changes.is_empty() {
             return;
         }
+        self.nodes.bump_paint_epoch();
 
         let media_data = make_media_data(&self.viewport, self.media_type.clone());
         let device = self.stylist.device_mut();
@@ -2786,6 +2788,7 @@ impl BaseDocument {
         focus_node: NodeId,
         focus_offset: usize,
     ) {
+        self.nodes.bump_paint_epoch();
         self.text_selection =
             TextSelection::new(anchor_node, anchor_offset, focus_node, focus_offset);
 
@@ -2842,11 +2845,13 @@ impl BaseDocument {
 
     /// Clear the text selection
     pub fn clear_text_selection(&mut self) {
+        self.nodes.bump_paint_epoch();
         self.text_selection.clear();
     }
 
     /// Update the selection focus point (used during mouse drag to extend selection).
     pub fn update_selection_focus(&mut self, focus_node: NodeId, focus_offset: usize) {
+        self.nodes.bump_paint_epoch();
         // For anonymous blocks, store parent+sibling_index; otherwise store node directly
         if let (Some(parent), Some(idx)) = self.anonymous_block_location(focus_node) {
             self.text_selection
