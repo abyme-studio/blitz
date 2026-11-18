@@ -48,3 +48,11 @@ To see the fixes: `diff -r ~/.cargo/registry/src/*/stylo-0.24.0 vendor/stylo`.
   container's content with them (`fix/scene-fragments`, `keep_fragments`).
 
 To see the fixes: `diff -r ~/.cargo/registry/src/*/anyrender-0.15.0 vendor/anyrender`.
+
+## vello_encoding 0.12.0
+
+- `glyph_cache.rs`, `lib.rs`: `take_glyph_outlines_encoded` counts the glyph outlines the
+  resolver's cache did not hold and so encoded. Upstream counts none, and the cache is private.
+  anyrender_vello's `take_frame_times` reads it, and `react-blitz-window` logs it per frame.
+
+To see the fixes: `diff -r ~/.cargo/registry/src/*/vello_encoding-0.12.0 vendor/vello_encoding`.

@@ -90,6 +90,9 @@ pub struct Counts {
     pub glyph_runs: u32,
     /// Glyphs drawn; 0 on a renderer that does not count them.
     pub glyphs: u32,
+    /// Glyph outlines encoded: glyphs Vello's cache did not hold. 0 on a renderer that does
+    /// not count them.
+    pub glyph_outlines: u32,
     /// Scroll containers whose content was built into the scene anew; 0 on a renderer that
     /// keeps none (the CPU ones).
     pub fragments_built: u32,
@@ -118,6 +121,7 @@ impl Counts {
             "textLayouts": self.text_layouts,
             "glyphRuns": self.glyph_runs,
             "glyphs": self.glyphs,
+            "glyphOutlines": self.glyph_outlines,
             "fragmentsBuilt": self.fragments_built,
             "fragmentsKept": self.fragments_kept,
         })
@@ -128,12 +132,13 @@ impl fmt::Display for Counts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "style traversals {}, layout nodes {}, text layouts {}, glyph runs {}, glyphs {}, fragments built {}, kept {}",
+            "style traversals {}, layout nodes {}, text layouts {}, glyph runs {}, glyphs {}, glyph outlines {}, fragments built {}, kept {}",
             self.style_traversals,
             self.layout_nodes,
             self.text_layouts,
             self.glyph_runs,
             self.glyphs,
+            self.glyph_outlines,
             self.fragments_built,
             self.fragments_kept
         )
