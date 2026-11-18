@@ -52,7 +52,10 @@ impl crate::document::BaseDocument {
             .flush(&guards)
             .process_style(root, Some(&self.snapshots));
 
-        // Mark actively animating nodes as dirty
+        // Mark actively animating nodes as dirty, once per animation time: a second resolve at the
+        // same time (a script's measure, then the frame's redraw) finds their styles as it left them.
+        let ticked = self.animation_time != Some(now);
+        self.animation_time = Some(now);
         let mut sets = self.animations.sets.write();
         for (key, set) in sets.iter_mut() {
             let node_id = NodeId::from_u64(key.node.id() as u64);
@@ -73,7 +76,9 @@ impl crate::document::BaseDocument {
                 continue;
             }
 
-            self.nodes[node_id].set_restyle_hint(RestyleHint::RESTYLE_SELF);
+            if ticked {
+                self.nodes[node_id].set_restyle_hint(RestyleHint::RESTYLE_SELF);
+            }
 
             for animation in set.animations.iter_mut() {
                 if animation.state == AnimationState::Pending && animation.started_at <= now {
