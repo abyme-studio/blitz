@@ -10,7 +10,7 @@ mod host;
 mod loader;
 mod net;
 
-pub use document::{ReactDocument, ReactDocumentConfig};
+pub use document::{Clock, ReactDocument, ReactDocumentConfig};
 pub use host::Host;
 pub use engine::{EventFlags, HostCalls, ScriptEngine};
 pub use events::EVENT_TYPES;
