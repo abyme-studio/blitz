@@ -24,10 +24,12 @@
 //!   `{"frame","boxes":[{"selector","x","y","width","height","opacity"} | {"selector","missing":true}]}`,
 //!   the border box in CSS pixels from the viewport's top left, `opacity` its own times its ancestors'.
 //! - `{"cmd":"shot","path"}`: the last frame, as a PNG at `path`. Answers `{"path","width","height"}`.
-//! - `{"cmd":"busy"}`: the last frame's work in ms, by phase:
-//!   `{"frame","input","turn","resolve","scene","raster","present","busy"}`, `busy` their sum
-//!   ([`Phases`] says each; `present` is 0, there being no window). And as it was first answered:
-//!   `{"js","style","layout","paint"}`, `js` the input and the turn, `paint` the scene and the raster.
+//! - `{"cmd":"busy"}`: the last frame's work in ms, by stage:
+//!   `{"frame","js","style","layout","scene","encode","render","present","busy"}`, `busy` their sum
+//!   ([`Phases`] says each; `encode` and `present` are 0, the CPU renderer timing no painter call
+//!   and there being no window). `paint` is the scene and the render, as it was first answered.
+//!   `counts` is how much ran ([`Counts`]):
+//!   `{"styleTraversals","layoutNodes","textLayouts","glyphRuns","glyphs"}`.
 //! - `{"cmd":"quit"}`: answers `{"ok":true}` and closes.
 
 use std::io::{BufRead, BufReader, Write};
@@ -51,7 +53,7 @@ use react_blitz::{Clock, DistLoader, ReactDocument, ReactDocumentConfig};
 use react_blitz_v8::V8Engine;
 use serde_json::{Value, json};
 
-use crate::phases::Phases;
+use crate::phases::{Counts, Phases};
 use crate::{Image, Shot, paint_timed, root_attr, write_png};
 
 /// One 60 Hz frame, in seconds.
@@ -81,8 +83,8 @@ pub struct Control {
     /// JS's ms since the last frame: the input's.
     input_js: f64,
     busy: Phases,
-    /// The part of the last frame's resolve that was style.
-    style: f64,
+    /// How much the last frame ran.
+    counts: Counts,
     image: Image,
     selectors: Vec<String>,
     boxes: Vec<Watched>,
@@ -121,7 +123,7 @@ impl Control {
             pointer: None,
             input_js: 0.0,
             busy: Phases::default(),
-            style: 0.0,
+            counts: Counts::default(),
             image: Image { width: 0, height: 0, rgba: Vec::new(), boxes: Vec::new() },
             selectors: Vec::new(),
             boxes: Vec::new(),
@@ -168,21 +170,22 @@ impl Control {
         let start = Instant::now();
         self.doc.run(TURN);
         let turn = ms(start);
+        let (mut busy, mut counts) = (Phases::default(), Counts::default());
+        let script = self.doc.inner_mut().take_resolve_stats();
+        busy.add_script(input + turn, &script);
+        counts.add_resolves(&script);
 
         let start = Instant::now();
-        {
-            let mut inner = self.doc.inner_mut();
-            if !inner.has_pending_critical_resources() {
-                inner.resolve_stylist(t);
-            }
-        }
-        self.style = ms(start);
         self.doc.inner_mut().resolve(t);
         let resolve = ms(start);
+        let redraw = self.doc.inner_mut().take_resolve_stats();
+        busy.add_resolve(resolve, &redraw);
+        counts.add_resolves(&redraw);
 
-        let (width, height, rgba, scene, raster) = paint_timed(&mut self.doc.inner_mut(), self.width, self.height, self.scale);
+        let (width, height, rgba, scene, render) = paint_timed(&mut self.doc.inner_mut(), self.width, self.height, self.scale);
         self.image = Image { width, height, rgba, boxes: Vec::new() };
-        self.busy = Phases { input, turn, resolve, scene, raster, present: 0.0 };
+        self.busy = Phases { scene, render, ..busy };
+        self.counts = counts;
         self.read_boxes();
     }
 
@@ -364,10 +367,8 @@ impl Control {
                 let b = self.busy;
                 let mut answer = b.json();
                 answer["frame"] = json!(self.frame);
-                answer["js"] = json!(b.input + b.turn);
-                answer["style"] = json!(self.style);
-                answer["layout"] = json!(b.resolve - self.style);
-                answer["paint"] = json!(b.scene + b.raster);
+                answer["paint"] = json!(b.scene + b.encode + b.render);
+                answer["counts"] = self.counts.json();
                 answer
             }
             "quit" => ok,

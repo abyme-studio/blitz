@@ -167,9 +167,9 @@ fn drive_steers_the_window_frame_by_frame() {
     w.close();
 }
 
-/// One wheel tick's frame: six phases, each a number, adding up to its busy.
+/// One wheel tick's frame: seven stages, each a number, adding up to its busy, and its counts.
 #[test]
-fn a_wheel_ticks_frame_says_six_phases_that_sum_to_its_busy() {
+fn a_wheel_ticks_frame_says_seven_stages_that_sum_to_its_busy() {
     let dist = bundle("window");
     let mut w = Window::open(&dist, "phases");
     w.frame();
@@ -177,17 +177,20 @@ fn a_wheel_ticks_frame_says_six_phases_that_sum_to_its_busy() {
     let frame = w.frame()["frame"].clone();
     let busy = w.send(json!({ "cmd": "busy" }));
     assert_eq!(busy["frame"], frame, "{busy}");
-    let phases: Vec<f64> = ["input", "turn", "resolve", "scene", "raster", "present"]
-        .iter()
-        .map(|k| busy[k].as_f64().unwrap_or_else(|| panic!("no {k} in {busy}")))
-        .collect();
-    assert!(phases.iter().all(|v| *v >= 0.0), "{busy}");
-    let sum: f64 = phases.iter().sum();
-    assert!((sum - busy["busy"].as_f64().unwrap()).abs() < 1e-9, "the six add to {sum}: {busy}");
-    // The wheel was input, the scene was built and turned into pixels, and no window took them.
-    assert!(busy["input"].as_f64().unwrap() > 0.0 && busy["scene"].as_f64().unwrap() > 0.0, "{busy}");
-    assert!(busy["raster"].as_f64().unwrap() > 0.0, "{busy}");
-    assert_eq!(busy["present"], 0.0, "{busy}");
+    let stage = |k: &str| busy[k].as_f64().unwrap_or_else(|| panic!("no {k} in {busy}"));
+    let stages: Vec<f64> = react_blitz_shot::phases::STAGES.iter().map(|k| stage(k)).collect();
+    assert_eq!(stages.len(), 7);
+    assert!(stages.iter().all(|v| *v >= 0.0), "{busy}");
+    let sum: f64 = stages.iter().sum();
+    assert!((sum - stage("busy")).abs() < 1e-9, "the seven add to {sum}: {busy}");
+    // The wheel was input, the resolve ran, the scene was built and turned into pixels; the CPU
+    // renderer times no painter call, and no window took the pixels.
+    assert!(stage("js") > 0.0 && stage("layout") > 0.0 && stage("scene") > 0.0 && stage("render") > 0.0, "{busy}");
+    assert_eq!((stage("encode"), stage("present")), (0.0, 0.0), "{busy}");
+    // How much ran, as numbers: the page's first frame laid out boxes and built text.
+    for k in ["styleTraversals", "layoutNodes", "textLayouts", "glyphRuns", "glyphs"] {
+        assert!(busy["counts"][k].as_u64().is_some(), "no count {k} in {busy}");
+    }
     w.close();
 }
 
