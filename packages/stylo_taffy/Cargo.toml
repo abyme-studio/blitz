@@ -27,3 +27,6 @@ floats = ["taffy/float_layout"]
 # Frame-aware style getters for CSS vertical writing modes (transposes physical styles into Taffy's
 # inline/block axes). Off by default: every getter is the plain physical mapping.
 writing-mode = []
+# `scrollbar-gutter: stable` reserves the scrollbar's width. Off by default: published Stylo has
+# the property for Gecko alone, so it needs a Stylo whose servo build has it.
+scrollbar-gutter = []
