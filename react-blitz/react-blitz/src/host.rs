@@ -28,6 +28,10 @@ pub struct HostState {
     pub scrolled: Vec<NodeId>,
     /// JS asked for a frame batch.
     pub frame_wanted: bool,
+    /// A commit changed the document since a redraw was last asked for.
+    pub changed: bool,
+    /// When the last frame batch went to JS: on wall time a batch goes once a display frame.
+    pub last_frame: Option<Instant>,
     pub address: String,
     pub started: Instant,
     /// The page's clock in seconds when it is stepped (`Clock::Stepped`): it moves only when the
@@ -48,6 +52,8 @@ impl Shared {
                 visible: HashMap::new(),
                 scrolled: Vec::new(),
                 frame_wanted: false,
+                changed: false,
+                last_frame: None,
                 address,
                 started: Instant::now(),
                 clock: None,
@@ -121,6 +127,7 @@ impl HostCalls for Host {
     fn commit(&mut self, ops: &[u8], strings: &[u8]) {
         let mut state = self.0.state.borrow_mut();
         let mut doc = self.0.doc.borrow_mut();
+        state.changed = true;
         if let Err(e) = state.tree.apply(&mut doc, ops, strings) {
             eprintln!("react-blitz: a commit did not apply: {e}");
             state.errors.push(e.to_string());
