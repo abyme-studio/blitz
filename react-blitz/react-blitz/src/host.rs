@@ -302,6 +302,11 @@ impl HostCalls for Host {
         ]
     }
 
+    fn text_width(&mut self, text: &str, family: &str, size: f64, weight: f64, italic: bool) -> f64 {
+        let doc = self.0.doc.borrow();
+        doc.text_width(text, family, size as f32, weight as f32, italic) as f64
+    }
+
     fn adopt(&mut self, which: &str) -> u32 {
         let node = {
             let doc = self.0.doc.borrow();
