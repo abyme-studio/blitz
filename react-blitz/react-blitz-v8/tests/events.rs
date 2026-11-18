@@ -5,7 +5,9 @@ mod common;
 use keyboard_types::{Key, NamedKey};
 
 fn settle(page: &mut common::Page) {
+    // On wall time the frame batch goes once a display frame, so each tick waits one out.
     for _ in 0..4 {
+        std::thread::sleep(std::time::Duration::from_millis(17));
         page.tick(1.0 / 60.0);
     }
 }
