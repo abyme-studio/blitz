@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 blitz-commit = { workspace = true }
-blitz-dom = { workspace = true, features = ["system-fonts", "svg", "woff"] }
+blitz-dom = { workspace = true, features = ["system-fonts", "svg", "woff", "scrollbar-gutter"] }
 blitz-html = { workspace = true }
 blitz-traits = { workspace = true }
 anyhow = "1"
