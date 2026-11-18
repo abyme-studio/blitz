@@ -1,5 +1,10 @@
 //! `react-blitz-shot <dist> <query> <out.png> --size WxH --scale N [--scheme light|dark]
-//! [--page index.html] [--timeout SECONDS] [--boxes boxes.json]`
+//! [--page index.html] [--timeout SECONDS] [--boxes boxes.json] [--frames N --scroll PX
+//! [--renderer cpu|gpu]]`
+//!
+//! With `--frames`: the page scrolled by a wheel of `--scroll` CSS pixels (down when positive)
+//! before each of N frames, each painted whole with no window; each frame's scene and raster ms and
+//! their medians go to stdout, the last frame to `<out.png>`.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -7,10 +12,11 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 use blitz_traits::shell::ColorScheme;
-use react_blitz_shot::{Shot, boxes_json, shoot, write_png};
+use react_blitz_shot::{Shot, boxes_json, median, scroll_frames, shoot, write_png};
 
 const USAGE: &str = "usage: react-blitz-shot <dist> <query> <out.png> --size WxH --scale N \
-[--scheme light|dark] [--page index.html] [--timeout SECONDS] [--boxes boxes.json]";
+[--scheme light|dark] [--page index.html] [--timeout SECONDS] [--boxes boxes.json] \
+[--frames N --scroll PX [--renderer cpu|gpu]]";
 
 fn main() -> ExitCode {
     match run() {
@@ -30,6 +36,7 @@ fn run() -> anyhow::Result<()> {
     let mut page = "index.html".to_string();
     let mut timeout = 30.0;
     let mut boxes = None;
+    let (mut frames, mut scroll, mut gpu) = (None::<usize>, 0.0, false);
     while let Some(arg) = args.next() {
         let mut value = |flag: &str| args.next().with_context(|| format!("{flag} needs a value\n{USAGE}"));
         match arg.as_str() {
@@ -49,6 +56,15 @@ fn run() -> anyhow::Result<()> {
             }
             "--page" => page = value("--page")?,
             "--boxes" => boxes = Some(PathBuf::from(value("--boxes")?)),
+            "--frames" => frames = Some(value("--frames")?.parse().context("--frames is a count")?),
+            "--scroll" => scroll = value("--scroll")?.parse().context("--scroll is CSS pixels")?,
+            "--renderer" => {
+                gpu = match value("--renderer")?.as_str() {
+                    "cpu" => false,
+                    "gpu" => true,
+                    other => bail!("--renderer is cpu or gpu, not {other}"),
+                }
+            }
             "--timeout" => timeout = value("--timeout")?.parse().context("--timeout is seconds")?,
             flag if flag.starts_with("--") => bail!("no flag {flag}\n{USAGE}"),
             _ => plain.push(arg),
@@ -65,6 +81,19 @@ fn run() -> anyhow::Result<()> {
         scheme,
         timeout: Duration::from_secs_f64(timeout),
     };
+    if let Some(frames) = frames {
+        let (times, image) = scroll_frames(&shot, frames, scroll, gpu)?;
+        for (i, t) in times.iter().enumerate() {
+            println!("frame {}: scene {:.2} ms, raster {:.2} ms", i + 1, t.scene, t.raster);
+        }
+        println!(
+            "median of {}: scene {:.2} ms, raster {:.2} ms",
+            times.len(),
+            median(times.iter().map(|t| t.scene).collect()),
+            median(times.iter().map(|t| t.raster).collect())
+        );
+        return write_png(&image, out.as_ref());
+    }
     let image = shoot(&shot)?;
     if let Some(path) = boxes {
         std::fs::write(&path, boxes_json(&image.boxes)).with_context(|| format!("writing {}", path.display()))?;
