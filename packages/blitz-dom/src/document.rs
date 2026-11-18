@@ -2411,6 +2411,33 @@ impl BaseDocument {
     }
 
     /// Computes the size and position of the `Node` relative to the viewport
+    /// The width `text` takes on one line in a font of the document's, in CSS pixels: what a
+    /// canvas answers for `measureText(text).width`. `family` is a CSS family list.
+    pub fn text_width(
+        &self,
+        text: &str,
+        family: &str,
+        size: f32,
+        weight: f32,
+        italic: bool,
+    ) -> f32 {
+        use parley::{FontFamily, FontStyle, FontWeight, StyleProperty};
+        let mut font_ctx = self.font_ctx.lock().unwrap();
+        let mut layout_ctx = parley::LayoutContext::<TextBrush>::new();
+        let mut builder = layout_ctx.ranged_builder(&mut font_ctx, text, 1.0, false);
+        builder.push_default(StyleProperty::FontFamily(FontFamily::Source(family.into())));
+        builder.push_default(StyleProperty::FontSize(size));
+        builder.push_default(StyleProperty::FontWeight(FontWeight::new(weight)));
+        builder.push_default(StyleProperty::FontStyle(if italic {
+            FontStyle::Italic
+        } else {
+            FontStyle::Normal
+        }));
+        let mut layout = builder.build(text);
+        layout.break_all_lines(None);
+        layout.full_width()
+    }
+
     pub fn get_client_bounding_rect(&self, node_id: NodeId) -> Option<BoundingRect> {
         // Non-atomic inline elements have no layout box of their own: return
         // the union of their per-line-box fragment rects.
