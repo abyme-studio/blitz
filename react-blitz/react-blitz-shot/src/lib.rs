@@ -136,6 +136,11 @@ pub struct ScrollFrame {
     pub raster: f64,
     /// The scroll containers' kept content: fragments built this frame, and drawn again as kept.
     pub fragments: blitz_paint::FragmentStats,
+    /// Glyph outlines Vello encoded for the frame: glyphs its cache did not hold. 0 on the CPU
+    /// renderer, which does not count them.
+    pub glyph_outlines: u32,
+    /// Inline layouts (Parley's) built since the frame before.
+    pub text_layouts: u32,
 }
 
 /// The page scrolled by a wheel of `scroll` CSS pixels (down when positive) at its middle before
@@ -214,6 +219,7 @@ impl<R: ImageRenderer> Offscreen<R> {
         self.time += FRAME;
         self.doc.poll(None);
         self.doc.inner_mut().resolve(self.time);
+        let text_layouts = self.doc.inner_mut().take_resolve_stats().text_layouts;
 
         let start = Instant::now();
         let mut scene_ms = 0.0;
@@ -237,7 +243,13 @@ impl<R: ImageRenderer> Offscreen<R> {
             &mut self.rgba,
         );
         self.renderer.reset();
-        ScrollFrame { scene: scene_ms, raster: start.elapsed().as_secs_f64() * 1000.0 - scene_ms, fragments: blitz_paint::take_fragment_stats() }
+        ScrollFrame {
+            scene: scene_ms,
+            raster: start.elapsed().as_secs_f64() * 1000.0 - scene_ms,
+            fragments: blitz_paint::take_fragment_stats(),
+            glyph_outlines: anyrender_vello::take_frame_times().glyph_outlines,
+            text_layouts,
+        }
     }
 
     /// The last frame painted.
