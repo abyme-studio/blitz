@@ -167,7 +167,7 @@ struct Ticking {
     doc: ReactDocument<V8Engine>,
     tick: Once,
     heap: Instant,
-    /// When the page was last turned: the shell polls after every event, and a turn costs a ms.
+    /// When the page was last turned: the shell polls after every event; one turn a tick is enough.
     turned: Instant,
 }
 
