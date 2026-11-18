@@ -2,7 +2,7 @@
 //! [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu] [--bare]`
 //!
 //! Without `--control`: `blitz-shell` with a `ReactDocument` over the build, on wall time, painted
-//! by Vello's CPU renderer (the shot's) or, with `--renderer gpu`, its GPU one, into a window; each
+//! by Vello's GPU renderer or, with `--renderer cpu`, its CPU one (the shot's), into a window; each
 //! frame's work by phase (`react_blitz_shot::phases`) and, every 5 s, V8's heap are logged on
 //! stderr. `--bare` opens an empty document with no JS: what a Blitz window costs alone. With
 //! `--control`: the page on a stepped 60 Hz clock, steered by JSON lines on the
@@ -52,7 +52,8 @@ fn run() -> anyhow::Result<()> {
     let mut page = "index.html".to_string();
     let mut timeout = 30.0;
     let mut control = None;
-    let (mut gpu, mut bare) = (false, false);
+    // The GPU by default: it has no copy of the frame to the window, a third of a scroll frame's work.
+    let (mut gpu, mut bare) = (true, false);
     while let Some(arg) = args.next() {
         let mut value = |flag: &str| args.next().with_context(|| format!("{flag} needs a value\n{USAGE}"));
         match arg.as_str() {
