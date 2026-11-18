@@ -17,7 +17,9 @@ use anyrender_vello_cpu::VelloCpuImageRenderer;
 use blitz_dom::util::Color;
 use blitz_dom::{Document as _, DocumentConfig};
 use blitz_paint::paint_scene;
-use blitz_traits::events::{BlitzWheelDelta, BlitzWheelEvent, PointerCoords, UiEvent};
+use blitz_traits::events::{
+    BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta, BlitzWheelEvent, PointerCoords, UiEvent,
+};
 use blitz_traits::shell::{ColorScheme, Viewport};
 use peniko::Fill;
 use peniko::kurbo::Rect;
@@ -148,6 +150,19 @@ fn scroll_with<R: ImageRenderer>(shot: &Shot, frames: usize, scroll: f64) -> any
     let mut renderer = R::new(width, height);
     let mut rgba = Vec::new();
     let mut times = Vec::with_capacity(frames);
+    // Blitz scrolls what the pointer is over: put it at the middle before the first wheel.
+    let coords = PointerCoords { screen_x: x, screen_y: y, client_x: x, client_y: y, page_x: x, page_y: y };
+    doc.handle_ui_event(UiEvent::PointerMove(BlitzPointerEvent {
+        id: BlitzPointerId::Mouse,
+        is_primary: true,
+        coords,
+        button: Default::default(),
+        buttons: Default::default(),
+        mods: Default::default(),
+        details: Default::default(),
+        element: Default::default(),
+        active_pointers: Default::default(),
+    }));
     for _ in 0..frames {
         let at = doc.inner().viewport_scroll();
         doc.handle_ui_event(UiEvent::Wheel(BlitzWheelEvent {
