@@ -1,6 +1,7 @@
 //! The host calls as ops, one for one with `react-blitz/js`'s `Bridge`.
 
-use std::time::Instant;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use deno_core::{OpState, op2};
 use ::react_blitz::HostCalls;
@@ -224,6 +225,28 @@ fn op_rb_timer_ran(state: &mut OpState) {
     state.put(TimerRan);
 }
 
+/// When each wall-clock timer next falls due, by its id: what the engine answers an embedder
+/// that asks when to turn the page next.
+#[derive(Default)]
+pub struct TimersDue(pub HashMap<u32, Instant>);
+
+/// The longest delay a timer keeps, as a browser's: 2^31 - 1 ms.
+const MAX_DELAY: f64 = 2_147_483_647.0;
+
+/// Timer `id` falls due `ms` from now; a negative `ms` says it is gone.
+#[op2(fast)]
+fn op_rb_timer_due(state: &mut OpState, id: u32, ms: f64) {
+    if !state.has::<TimersDue>() {
+        state.put(TimersDue::default());
+    }
+    let due = state.borrow_mut::<TimersDue>();
+    if ms < 0.0 {
+        due.0.remove(&id);
+    } else {
+        due.0.insert(id, Instant::now() + Duration::from_secs_f64(ms.min(MAX_DELAY) / 1000.0));
+    }
+}
+
 #[op2(fast)]
 fn op_rb_random(#[buffer] buf: &mut [u8]) {
     let _ = getrandom::fill(buf);
@@ -281,7 +304,7 @@ deno_core::extension!(
         op_rb_style, op_rb_focus, op_rb_blur, op_rb_focused, op_rb_matches, op_rb_find,
         op_rb_find_all, op_rb_observe, op_rb_frame, op_rb_viewport, op_rb_text_width, op_rb_adopt, op_rb_at, op_rb_tag,
         op_rb_attr, op_rb_children, op_rb_has_focus, op_rb_address, op_rb_log, op_rb_event_in,
-        op_rb_event_out, op_rb_frame_in, op_rb_now, op_rb_stepped, op_rb_timer_ran, op_rb_random,
+        op_rb_event_out, op_rb_frame_in, op_rb_now, op_rb_stepped, op_rb_timer_ran, op_rb_timer_due, op_rb_random,
         op_rb_url,
     ],
 );
