@@ -30,6 +30,8 @@ export interface Bridge {
   frame(): void;
   /** width, height, scale. */
   viewport(): number[];
+  /** The width `text` takes on one line, in CSS pixels, in a font: its family list, size in px, weight, and whether italic. */
+  textWidth(text: string, family: string, size: number, weight: number, italic: boolean): number;
   /** A node of the page's own: "document", "html", "head" or "body". */
   adopt(which: string): number;
   /** The topmost node at a viewport point, 0 for none. */
