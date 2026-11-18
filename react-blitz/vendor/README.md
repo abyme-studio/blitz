@@ -31,3 +31,7 @@ To see the fixes: `diff -r ~/.cargo/registry/src/*/stylo-0.24.0 vendor/stylo`.
   second for them before the window's first frame.
 - `window_renderer.rs`: the renderer builds the pipelines of its own antialiasing method only.
   Upstream builds all three (`AaSupport::all()`), two of which a window never draws with.
+- `frame_times.rs`, `scene.rs`, `window_renderer.rs`: the renderer times a frame's stages on its
+  own thread (`take_frame_times`): encoding the scene, acquiring the surface, the render, the
+  present and the wait for the GPU, and counts the glyph runs and glyphs drawn. Upstream times
+  none of them. `react-blitz-window` logs them per frame.
