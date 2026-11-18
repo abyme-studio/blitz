@@ -3,10 +3,13 @@
 //!
 //! Without `--control`: `blitz-shell` with a `ReactDocument` over the build, on wall time, painted
 //! by Vello's CPU renderer (the shot's) or, with `--renderer gpu`, its GPU one, into a window; each
-//! frame's time, each turn of JS and, every 5 s, V8's heap are logged on stderr. `--bare` opens an
-//! empty document with no JS: what a Blitz window costs alone. With `--control`: the page on a stepped 60 Hz clock, steered by JSON lines on the
+//! frame's work by phase (`react_blitz_shot::phases`) and, every 5 s, V8's heap are logged on
+//! stderr. `--bare` opens an empty document with no JS: what a Blitz window costs alone. With
+//! `--control`: the page on a stepped 60 Hz clock, steered by JSON lines on the
 //! Unix socket (`react_blitz_shot::control` lists them), painted with no window, as the shot is.
 
+use std::cell::{Cell, RefCell};
+use std::num::NonZero;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
@@ -15,9 +18,9 @@ use std::task::Context as TaskContext;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use anyrender::{RenderContext, WindowHandle, WindowRenderer};
+use anyrender::{ImageRenderer, RenderContext, WindowHandle, WindowRenderer};
 use anyrender_vello::VelloWindowRenderer;
-use anyrender_vello_cpu::VelloCpuWindowRenderer;
+use anyrender_vello_cpu::VelloCpuImageRenderer;
 use blitz_dom::{BaseDocument, DocGuard, DocGuardMut, Document, DocumentConfig};
 use blitz_shell::{BlitzApplication, BlitzShellProxy, WindowConfig, create_default_event_loop};
 use blitz_traits::events::UiEvent;
@@ -25,6 +28,7 @@ use blitz_traits::shell::{ColorScheme, Viewport};
 use react_blitz::{Clock, DistLoader, ReactDocument, ReactDocumentConfig};
 use react_blitz_shot::Shot;
 use react_blitz_shot::control::{Control, serve};
+use react_blitz_shot::phases::Phases;
 use react_blitz_v8::V8Engine;
 
 const USAGE: &str = "usage: react-blitz-window <dist> <query> [--control <socket>] [--size WxH] \
@@ -133,7 +137,7 @@ fn window(shot: &Shot, gpu: bool, bare: bool) -> anyhow::Result<()> {
         event_loop.run_app(application)?;
     } else {
         let mut application = BlitzApplication::new(proxy, receiver);
-        application.add_window(WindowConfig::with_attributes(doc, Timed::new(VelloCpuWindowRenderer::new()), attributes));
+        application.add_window(WindowConfig::with_attributes(doc, Timed::new(Soft::new()), attributes));
         event_loop.run_app(application)?;
     }
     Ok(())
@@ -142,8 +146,22 @@ fn window(shot: &Shot, gpu: bool, bare: bool) -> anyhow::Result<()> {
 /// How often the page is turned for its timers.
 const TICK: Duration = Duration::from_millis(4);
 
+thread_local! {
+    /// The work done since the last frame was drawn: the input and the turns, added as they run.
+    static SINCE: RefCell<Phases> = RefCell::default();
+    /// When the document was last borrowed to change: a redraw's first act, before its resolve.
+    static BORROWED: Cell<Option<Instant>> = const { Cell::new(None) };
+    /// The part of the frame being drawn that handed its pixels to the window.
+    static PRESENT: Cell<f64> = const { Cell::new(0.0) };
+}
+
+fn ms(since: Instant) -> f64 {
+    since.elapsed().as_secs_f64() * 1000.0
+}
+
 /// The document, woken every few ms so JS's timers run between input and frames, as a browser's
-/// loop runs them; each turn that ran JS is logged with its time, and V8's heap every 5 s.
+/// loop runs them; its input and turns are timed for the frame they lead to, and V8's heap is
+/// logged every 5 s.
 struct Ticking {
     doc: ReactDocument<V8Engine>,
     tick: Once,
@@ -158,16 +176,14 @@ impl Document for Ticking {
     }
 
     fn inner_mut(&mut self) -> DocGuardMut<'_> {
+        BORROWED.set(Some(Instant::now()));
         self.doc.inner_mut()
     }
 
     fn handle_ui_event(&mut self, event: UiEvent) {
         let start = Instant::now();
         self.doc.handle_ui_event(event);
-        let ms = start.elapsed().as_secs_f64() * 1000.0;
-        if ms >= 1.0 {
-            eprintln!("react-blitz-window: event {ms:.1} ms");
-        }
+        SINCE.with_borrow_mut(|p| p.input += ms(start));
     }
 
     fn poll(&mut self, cx: Option<TaskContext>) -> bool {
@@ -188,10 +204,7 @@ impl Document for Ticking {
         }
         self.turned = start;
         let ran = self.doc.poll(cx);
-        let ms = start.elapsed().as_secs_f64() * 1000.0;
-        if ms >= 1.0 {
-            eprintln!("react-blitz-window: js {ms:.1} ms");
-        }
+        SINCE.with_borrow_mut(|p| p.turn += ms(start));
         if self.heap.elapsed() >= Duration::from_secs(5) {
             self.heap = Instant::now();
             let nodes = self.doc.inner().tree().len();
@@ -205,8 +218,9 @@ impl Document for Ticking {
     }
 }
 
-/// The window's renderer, logging each frame: its paint, the part of it that built the scene, and
-/// the time since the frame before.
+/// The window's renderer, logging each frame: its work by phase, and the time since the frame
+/// before. The resolve is the time from the redraw borrowing the document to its render; with the
+/// GPU renderer the raster holds the present, which Vello does not time apart.
 struct Timed<R> {
     renderer: R,
     frame: u64,
@@ -253,20 +267,104 @@ impl<R: WindowRenderer + 'static> WindowRenderer for Timed<R> {
 
     fn render<F: FnOnce(&mut Self::ScenePainter<'_>)>(&mut self, draw_fn: F) {
         let start = Instant::now();
+        let resolve = BORROWED.take().map_or(0.0, |at| start.duration_since(at).as_secs_f64() * 1000.0);
         let mut scene = 0.0;
+        PRESENT.set(0.0);
         self.renderer.render(|painter| {
             let at = Instant::now();
             draw_fn(painter);
-            scene = at.elapsed().as_secs_f64() * 1000.0;
+            scene = ms(at);
         });
-        let paint = start.elapsed().as_secs_f64() * 1000.0;
+        let present = PRESENT.take();
+        let raster = ms(start) - scene - present;
+        let phases = SINCE.with_borrow_mut(|p| Phases { resolve, scene, raster, present, ..std::mem::take(p) });
         let since = self.last.map(|l| format!("{:.1} ms", start.duration_since(l).as_secs_f64() * 1000.0));
         self.last = Some(start);
         self.frame += 1;
-        eprintln!(
-            "react-blitz-window: frame {} paint {paint:.1} ms, since last {}, scene {scene:.1} ms",
-            self.frame,
-            since.as_deref().unwrap_or("-")
+        eprintln!("react-blitz-window: frame {} {phases}; since last {}", self.frame, since.as_deref().unwrap_or("-"));
+    }
+}
+
+/// Vello's CPU renderer into the window through softbuffer, as `softbuffer_window_renderer` does
+/// it, with the copy to the window and its present timed apart from the raster.
+struct Soft {
+    // The surface before the window, so it is dropped first.
+    surface: Option<softbuffer::Surface<Arc<dyn WindowHandle>, Arc<dyn WindowHandle>>>,
+    renderer: VelloCpuImageRenderer,
+    buffer: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+impl Soft {
+    fn new() -> Self {
+        Self { surface: None, renderer: VelloCpuImageRenderer::new(0, 0), buffer: Vec::new(), width: 0, height: 0 }
+    }
+}
+
+impl RenderContext for Soft {}
+
+impl WindowRenderer for Soft {
+    type ScenePainter<'a>
+        = <VelloCpuImageRenderer as ImageRenderer>::ScenePainter<'a>
+    where
+        Self: 'a;
+
+    fn resume<F: FnOnce() + 'static>(&mut self, window: Arc<dyn WindowHandle>, width: u32, height: u32, on_ready: F) {
+        let context = softbuffer::Context::new(window.clone()).expect("softbuffer takes the window");
+        self.surface = Some(softbuffer::Surface::new(&context, window).expect("softbuffer makes a surface"));
+        self.set_size(width, height);
+        on_ready();
+    }
+
+    fn complete_resume(&mut self) -> bool {
+        true
+    }
+
+    fn suspend(&mut self) {
+        self.surface = None;
+    }
+
+    fn is_active(&self) -> bool {
+        self.surface.is_some()
+    }
+
+    fn set_size(&mut self, width: u32, height: u32) {
+        self.width = width;
+        self.height = height;
+        if let Some(surface) = &mut self.surface {
+            surface.resize(NonZero::new(width.max(1)).unwrap(), NonZero::new(height.max(1)).unwrap()).expect("the surface resizes");
+            self.renderer.resize(width, height);
+        }
+    }
+
+    fn render<F: FnOnce(&mut Self::ScenePainter<'_>)>(&mut self, draw_fn: F) {
+        let Some(surface) = &mut self.surface else { return };
+        let Ok(mut pixels) = surface.buffer_mut() else { return };
+        let (width, height) = (self.width as f64, self.height as f64);
+        self.renderer.render_to_vec(
+            |painter| {
+                use anyrender::PaintScene as _;
+                painter.fill(
+                    peniko::Fill::NonZero,
+                    Default::default(),
+                    peniko::Color::WHITE,
+                    Default::default(),
+                    &peniko::kurbo::Rect::new(0.0, 0.0, width, height),
+                    anyrender::AntiAliasing::Enabled,
+                );
+                draw_fn(painter);
+            },
+            &mut self.buffer,
         );
+        let start = Instant::now();
+        let (chunks, _) = self.buffer.as_chunks::<4>();
+        assert_eq!(chunks.len(), pixels.len());
+        for (&[r, g, b, _], out) in chunks.iter().zip(pixels.iter_mut()) {
+            *out = (r as u32) << 16 | (g as u32) << 8 | b as u32;
+        }
+        pixels.present().expect("the window takes the frame");
+        PRESENT.set(ms(start));
+        self.renderer.reset();
     }
 }
