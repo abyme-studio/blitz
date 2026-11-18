@@ -5,6 +5,9 @@
 mod ops;
 
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context as TaskContext, Poll, Wake, Waker};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -16,6 +19,15 @@ use deno_error::JsErrorBox;
 use react_blitz::{EventFlags, HostCalls, ModuleSource, ScriptEngine};
 
 pub use ops::{EventIn, HostBox};
+
+/// Whether the event loop asked to be polled again while it was polled.
+struct Woke(AtomicBool);
+
+impl Wake for Woke {
+    fn wake(self: Arc<Self>) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
 
 struct Loader(Rc<dyn ModuleSource>);
 
@@ -114,6 +126,9 @@ impl V8Engine {
     /// Run what is ready, and what falls due within a moment, never past the deadline. Answers
     /// whether work was left when it stopped.
     fn run_loop(&mut self, deadline: Instant) -> bool {
+        if self.wait.is_zero() {
+            return self.run_ready(deadline);
+        }
         let runtime = &mut self.runtime;
         let until = deadline.min(Instant::now() + self.wait);
         self.tokio.block_on(async {
@@ -125,6 +140,31 @@ impl V8Engine {
                 }
                 Ok(Ok(())) => false,
                 Err(_) => true,
+            }
+        })
+    }
+
+    /// Run what is ready now and wait for nothing. A wait of zero through tokio's timer still
+    /// sleeps to its next tick, a millisecond: three events a frame made that the frame's input
+    /// time. Here the loop is polled by hand, and again only while it woke itself for more.
+    fn run_ready(&mut self, deadline: Instant) -> bool {
+        let runtime = &mut self.runtime;
+        self.tokio.block_on(async {
+            loop {
+                // Turn tokio's timer without sleeping, so a timer that is due fires.
+                tokio::task::yield_now().await;
+                let woke = Arc::new(Woke(AtomicBool::new(false)));
+                let waker = Waker::from(Arc::clone(&woke));
+                let polled = runtime.poll_event_loop(&mut TaskContext::from_waker(&waker), PollEventLoopOptions::default());
+                match polled {
+                    Poll::Ready(Ok(())) => return false,
+                    Poll::Ready(Err(e)) => {
+                        eprintln!("react-blitz: {e}");
+                        return false;
+                    }
+                    Poll::Pending if woke.0.load(Ordering::Relaxed) && Instant::now() < deadline => {}
+                    Poll::Pending => return true,
+                }
             }
         })
     }
