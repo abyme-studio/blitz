@@ -21,6 +21,10 @@ pub trait ScriptEngine {
     /// Run due timers and microtasks until none is ready or `deadline` passes. Answers whether
     /// anything ran.
     fn pump(&mut self, deadline: Instant) -> bool;
+    /// When the earliest wall-clock timer falls due; nothing when none waits.
+    fn next_due(&self) -> Option<Instant> {
+        None
+    }
 }
 
 /// The calls JS makes into the host: `react-blitz/js`'s `Bridge`, one for one. Ids are JS ids.
