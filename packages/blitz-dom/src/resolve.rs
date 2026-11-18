@@ -70,6 +70,8 @@ impl BaseDocument {
 
         let root_node_id = self.root_element().id;
         debug_timer!(timer, feature = "log-phase-times");
+        let resolve_started = web_time::Instant::now();
+        let style_before = self.resolve_stats.style;
 
         // Apply any device changes (viewport resize, zoom, color-scheme, etc)
         // accumulated since the last resolve as a single device rebuild.
@@ -137,6 +139,9 @@ impl BaseDocument {
         // restyle is picked up on the next resolve pass; a redraw is requested
         // if the hovered node actually changes.
         self.refresh_hover();
+        // The resolve's time outside the style pass, which times itself.
+        let styled = self.resolve_stats.style - style_before;
+        self.resolve_stats.layout += resolve_started.elapsed().saturating_sub(styled);
 
         let mut subdoc_is_animating = false;
         for &node_id in &self.sub_document_nodes {
@@ -364,6 +369,7 @@ impl BaseDocument {
         #[cfg(not(feature = "parallel-construct"))]
         let iter = deferred_construction_nodes.into_iter();
 
+        let text_layouts = std::sync::atomic::AtomicU32::new(0);
         let results: Vec<ConstructionTaskResult> = iter
             .map(|task: ConstructionTask| match task.data {
                 ConstructionTaskData::InlineLayout(mut layout) => {
@@ -388,6 +394,7 @@ impl BaseDocument {
                     let font_ctx_mut = &mut *self.font_ctx.lock().unwrap();
 
                     layout.content_widths = None;
+                    text_layouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     build_inline_layout_into(
                         &self.nodes,
                         layout_ctx_mut,
@@ -415,6 +422,7 @@ impl BaseDocument {
                 }
             })
             .collect();
+        self.resolve_stats.text_layouts += text_layouts.into_inner();
 
         for result in results {
             match result.data {
