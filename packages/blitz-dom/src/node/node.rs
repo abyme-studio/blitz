@@ -2291,3 +2291,12 @@ mod test {
         );
     }
 }
+
+/// A node's content box as it was last laid out: its border box less its padding and border.
+pub(crate) fn content_box_size(node: &Node) -> (f32, f32) {
+    let l = node.final_layout();
+    (
+        (l.size.width - l.padding.left - l.padding.right - l.border.left - l.border.right).max(0.0),
+        (l.size.height - l.padding.top - l.padding.bottom - l.border.top - l.border.bottom).max(0.0),
+    )
+}
