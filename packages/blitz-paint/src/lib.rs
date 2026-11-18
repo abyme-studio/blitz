@@ -8,6 +8,7 @@ mod color;
 mod debug_overlay;
 mod filters;
 mod gradient;
+mod kept;
 mod kurbo_css;
 mod layers;
 mod render;
@@ -19,6 +20,7 @@ use std::collections::HashMap;
 
 use anyrender::{PaintScene, Scene};
 use blitz_dom::{BaseDocument, NodeId, util::Color};
+pub use kept::{FragmentStats, keep_fragments, take_fragment_stats};
 use render::BlitzDomPainter;
 
 const FONT_EMBOLDEN_ENABLED: bool = cfg!(any(
@@ -70,6 +72,7 @@ pub fn paint_scene(
         &custom_widget_scenes,
     );
     generator.paint_scene(scene);
+    generator.kept.sweep(scene);
 
     // println!(
     //     "Rendered using {} clips (depth: {}) (wanted: {})",

@@ -324,6 +324,9 @@ impl BaseDocument {
             self.clear_damage_and_dirty_flags(after_id);
         }
 
+        if has_damage {
+            self.nodes.mark_paint_changed(node_id);
+        }
         let node = &mut self.nodes[node_id];
         node.anonymous_blocks = anonymous_blocks;
         node.children = children;
