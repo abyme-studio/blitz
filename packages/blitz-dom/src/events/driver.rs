@@ -186,6 +186,18 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
         // A document the pointer has left has no say over the cursor
         let is_leave = matches!(event, UiEvent::PointerLeave(_));
 
+        // A press, a key, an edit or a drag can change what is painted with no damage to say
+        // so (a selection, a caret, an input's text): nothing kept between frames outlives one.
+        // A bare move or a wheel changes only hover, which is styled, and scroll.
+        let kept_scene_survives = match &event {
+            UiEvent::PointerMove(e) => e.buttons.is_empty(),
+            UiEvent::Wheel(_) | UiEvent::PointerLeave(_) => true,
+            _ => false,
+        };
+        if !kept_scene_survives {
+            self.doc.inner().tree().bump_paint_epoch();
+        }
+
         // Update document input state (hover, focus, active, etc)
         match &event {
             UiEvent::PointerMove(event) => {
