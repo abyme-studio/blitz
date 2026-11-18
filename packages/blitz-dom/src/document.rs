@@ -321,6 +321,8 @@ pub struct BaseDocument {
     /// Load state (abort controller and in-flight request id) for each
     /// `<iframe>` element whose sub-document is loaded automatically
     pub(crate) iframe_loads: HashMap<NodeId, crate::iframe::IframeLoad>,
+    /// What the resolves cost since `take_resolve_stats`
+    pub(crate) resolve_stats: crate::ResolveStats,
     /// Whether the DOM or focus changed since the accessibility tree was last pushed
     pub(crate) has_changes: bool,
     /// Set of changed nodes for updating the accessibility tree
@@ -509,6 +511,7 @@ impl BaseDocument {
             #[cfg(feature = "custom-widget")]
             pending_resource_deallocations: Vec::new(),
 
+            resolve_stats: Default::default(),
             has_changes: false,
             deferred_construction_nodes: Vec::new(),
             image_cache: HashMap::new(),
@@ -2054,6 +2057,12 @@ impl BaseDocument {
         self.shell_provider.request_redraw();
 
         true
+    }
+
+    /// What the resolves cost since this was last called: their time in style and in layout, and
+    /// how much of each ran. An embedder takes it once a frame.
+    pub fn take_resolve_stats(&mut self) -> crate::ResolveStats {
+        std::mem::take(&mut self.resolve_stats)
     }
 
     /// Re-resolve hover state against the current layout using the last known
