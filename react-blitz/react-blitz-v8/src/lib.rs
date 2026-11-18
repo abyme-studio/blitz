@@ -5,7 +5,7 @@
 mod ops;
 
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use deno_core::{
@@ -66,6 +66,9 @@ impl ModuleLoader for Loader {
 pub struct V8Engine {
     runtime: JsRuntime,
     tokio: tokio::runtime::Runtime,
+    /// How long a turn waits for work about to fall due. A stepped page waits a moment, so a
+    /// step sees it; a window turned every few ms waits not at all, or it never rests to draw.
+    pub wait: Duration,
 }
 
 impl V8Engine {
@@ -84,7 +87,7 @@ impl V8Engine {
             .execute_script("react-blitz:web.js", include_str!("web.js"))
             .map_err(|e| anyhow::anyhow!("web.js: {e}"))?;
         drop(_guard);
-        Ok(Self { runtime, tokio })
+        Ok(Self { runtime, tokio, wait: Duration::from_millis(2) })
     }
 
     /// Run a script in the page's global scope, for a test.
@@ -96,11 +99,23 @@ impl V8Engine {
         Ok(())
     }
 
+    /// V8's heap in bytes: used, total, physical, external, malloced.
+    pub fn heap(&mut self) -> [usize; 5] {
+        let stats = self.runtime.v8_isolate().get_heap_statistics();
+        [
+            stats.used_heap_size(),
+            stats.total_heap_size(),
+            stats.total_physical_size(),
+            stats.external_memory(),
+            stats.malloced_memory(),
+        ]
+    }
+
     /// Run what is ready, and what falls due within a moment, never past the deadline. Answers
     /// whether work was left when it stopped.
     fn run_loop(&mut self, deadline: Instant) -> bool {
         let runtime = &mut self.runtime;
-        let until = deadline.min(Instant::now() + std::time::Duration::from_millis(2));
+        let until = deadline.min(Instant::now() + self.wait);
         self.tokio.block_on(async {
             let run = runtime.run_event_loop(PollEventLoopOptions::default());
             match tokio::time::timeout_at(until.into(), run).await {
