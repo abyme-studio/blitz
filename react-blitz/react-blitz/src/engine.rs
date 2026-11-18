@@ -50,4 +50,8 @@ pub trait HostCalls {
     /// The page's address, as `location.href`.
     fn address(&mut self) -> String;
     fn log(&mut self, level: &str, text: &str);
+    /// Milliseconds on the page's clock: `performance.now()`.
+    fn now(&mut self) -> f64;
+    /// Whether the page's clock is stepped: its timers then fall due on that clock, not wall time.
+    fn stepped(&mut self) -> bool;
 }
