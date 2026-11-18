@@ -38,6 +38,7 @@ static PARALLEL_TRAVERSAL_LOCK: Mutex<()> = Mutex::new(());
 
 impl crate::document::BaseDocument {
     pub fn resolve_stylist(&mut self, now: f64) {
+        let started = web_time::Instant::now();
         style::thread_state::enter(ThreadState::LAYOUT);
 
         let guard = &self.guard;
@@ -116,7 +117,9 @@ impl crate::document::BaseDocument {
         let token = RecalcStyle::pre_traverse(root, &context);
 
         let mut nodes_needing_style_image_flush = Vec::new();
+        let mut traversed = 0;
         if token.should_traverse() {
+            traversed = 1;
             // Style the elements, resolving their data
             let mut traverser = RecalcStyle::new(context);
             // `Sequential` bypasses Stylo's global pool. See `StyleThreading`.
@@ -132,6 +135,7 @@ impl crate::document::BaseDocument {
             nodes_needing_style_image_flush =
                 std::mem::take(traverser.nodes_needing_style_image_flush.get_mut().unwrap());
         }
+        self.resolve_stats.style_traversals += traversed;
         self.pending_style_image_nodes
             .extend(nodes_needing_style_image_flush);
 
@@ -178,6 +182,7 @@ impl crate::document::BaseDocument {
         self.stylist.rule_tree().maybe_gc();
 
         style::thread_state::exit(ThreadState::LAYOUT);
+        self.resolve_stats.style += started.elapsed();
     }
 
     /// Compute the style of an element which the regular style traversal
