@@ -110,6 +110,7 @@ impl<E: ScriptEngine> ReactDocument<E> {
             let due = state.clock.is_some() || state.last_frame.is_none_or(|at| at.elapsed() >= FRAME);
             if due {
                 state.last_frame = Some(Instant::now());
+                state.owed = false;
             }
             due
         };
@@ -122,6 +123,16 @@ impl<E: ScriptEngine> ReactDocument<E> {
             }
         }
         ran
+    }
+
+    /// When the page next needs a turn that no event brings, on wall time: its earliest timer,
+    /// or the next display frame while JS asked for a frame or the document may have changed
+    /// since the last batch. Nothing when nothing is due: the embedder need not wake.
+    pub fn next_turn(&self) -> Option<Instant> {
+        let state = self.shared.state.borrow();
+        let frame = (state.frame_wanted || state.owed).then(|| state.last_frame.map_or_else(Instant::now, |at| at + FRAME));
+        drop(state);
+        [self.engine.next_due(), frame].into_iter().flatten().min()
     }
 
     /// Seconds on the page's clock.
@@ -156,6 +167,8 @@ impl<E: ScriptEngine + 'static> Document for ReactDocument<E> {
     }
 
     fn inner_mut(&mut self) -> DocGuardMut<'_> {
+        // The embedder's change (a redraw's resolve, a resize, a loaded font) may move what JS observes.
+        self.shared.state.borrow_mut().owed = true;
         DocGuardMut::RefCell(self.shared.doc.borrow_mut())
     }
 
@@ -168,6 +181,7 @@ impl<E: ScriptEngine + 'static> Document for ReactDocument<E> {
         let mut driver = EventDriver::new(&mut doc, handler);
         driver.handle_ui_event(event);
         drop(driver);
+        self.shared.state.borrow_mut().owed = true;
         // A discrete event's updates run in its microtasks.
         self.engine.pump(Instant::now() + Duration::from_millis(16));
         self.shared.doc.borrow().shell_provider.request_redraw();

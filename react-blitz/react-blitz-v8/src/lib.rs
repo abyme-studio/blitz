@@ -239,4 +239,10 @@ impl ScriptEngine for V8Engine {
         }
         ran
     }
+
+    fn next_due(&self) -> Option<Instant> {
+        let state = self.runtime.op_state();
+        let state = state.borrow();
+        state.try_borrow::<ops::TimersDue>()?.0.values().min().copied()
+    }
 }
