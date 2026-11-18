@@ -1,9 +1,10 @@
 //! `react-blitz-window <dist> <query> [--control <socket>] [--size WxH] [--scale N]
-//! [--scheme light|dark] [--page index.html] [--timeout SECONDS]`
+//! [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu] [--bare]`
 //!
 //! Without `--control`: `blitz-shell` with a `ReactDocument` over the build, on wall time, painted
-//! by Vello's CPU renderer (the shot's) into a window; each frame's time and each turn of JS are
-//! logged on stderr. With `--control`: the page on a stepped 60 Hz clock, steered by JSON lines on the
+//! by Vello's CPU renderer (the shot's) or, with `--renderer gpu`, its GPU one, into a window; each
+//! frame's time, each turn of JS and, every 5 s, V8's heap are logged on stderr. `--bare` opens an
+//! empty document with no JS: what a Blitz window costs alone. With `--control`: the page on a stepped 60 Hz clock, steered by JSON lines on the
 //! Unix socket (`react_blitz_shot::control` lists them), painted with no window, as the shot is.
 
 use std::path::PathBuf;
@@ -15,8 +16,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use anyrender::{RenderContext, WindowHandle, WindowRenderer};
+use anyrender_vello::VelloWindowRenderer;
 use anyrender_vello_cpu::VelloCpuWindowRenderer;
-use blitz_dom::{DocGuard, DocGuardMut, Document, DocumentConfig};
+use blitz_dom::{BaseDocument, DocGuard, DocGuardMut, Document, DocumentConfig};
 use blitz_shell::{BlitzApplication, BlitzShellProxy, WindowConfig, create_default_event_loop};
 use blitz_traits::events::UiEvent;
 use blitz_traits::shell::{ColorScheme, Viewport};
@@ -26,7 +28,7 @@ use react_blitz_shot::control::{Control, serve};
 use react_blitz_v8::V8Engine;
 
 const USAGE: &str = "usage: react-blitz-window <dist> <query> [--control <socket>] [--size WxH] \
-[--scale N] [--scheme light|dark] [--page index.html] [--timeout SECONDS]";
+[--scale N] [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu] [--bare]";
 
 fn main() -> ExitCode {
     match run() {
@@ -46,6 +48,7 @@ fn run() -> anyhow::Result<()> {
     let mut page = "index.html".to_string();
     let mut timeout = 30.0;
     let mut control = None;
+    let (mut gpu, mut bare) = (false, false);
     while let Some(arg) = args.next() {
         let mut value = |flag: &str| args.next().with_context(|| format!("{flag} needs a value\n{USAGE}"));
         match arg.as_str() {
@@ -65,6 +68,14 @@ fn run() -> anyhow::Result<()> {
                 }
             }
             "--page" => page = value("--page")?,
+            "--renderer" => {
+                gpu = match value("--renderer")?.as_str() {
+                    "cpu" => false,
+                    "gpu" => true,
+                    other => bail!("--renderer is cpu or gpu, not {other}"),
+                }
+            }
+            "--bare" => bare = true,
             "--timeout" => timeout = value("--timeout")?.parse().context("--timeout is seconds")?,
             flag if flag.starts_with("--") => bail!("no flag {flag}\n{USAGE}"),
             _ => plain.push(arg),
@@ -83,44 +94,62 @@ fn run() -> anyhow::Result<()> {
     };
     match control {
         Some(socket) => serve(Control::open(&shot)?, &socket),
-        None => window(&shot),
+        None => window(&shot, gpu, bare),
     }
 }
 
-/// The page in a window, on wall time.
-fn window(shot: &Shot) -> anyhow::Result<()> {
-    let loader = Rc::new(DistLoader::new(&shot.dist)?);
-    let engine = V8Engine::new(loader)?;
-    let doc = ReactDocument::open(
-        ReactDocumentConfig {
-            dist: shot.dist.clone(),
-            page: shot.page.clone(),
-            query: shot.query.clone(),
-            document: DocumentConfig {
-                viewport: Some(Viewport::new(shot.width, shot.height, shot.scale, shot.scheme)),
-                ..Default::default()
+/// The page in a window, on wall time; `bare`, an empty document in its place.
+fn window(shot: &Shot, gpu: bool, bare: bool) -> anyhow::Result<()> {
+    let document = DocumentConfig {
+        viewport: Some(Viewport::new(shot.width, shot.height, shot.scale, shot.scheme)),
+        ..Default::default()
+    };
+    let doc: Box<dyn Document> = if bare {
+        Box::new(BaseDocument::new(document))
+    } else {
+        let loader = Rc::new(DistLoader::new(&shot.dist)?);
+        let mut engine = V8Engine::new(loader)?;
+        engine.wait = Duration::ZERO;
+        let doc = ReactDocument::open(
+            ReactDocumentConfig {
+                dist: shot.dist.clone(),
+                page: shot.page.clone(),
+                query: shot.query.clone(),
+                document,
+                clock: Clock::Wall,
             },
-            clock: Clock::Wall,
-        },
-        engine,
-    )?;
+            engine,
+        )?;
+        Box::new(Ticking { doc, tick: Once::new(), heap: Instant::now(), turned: Instant::now() })
+    };
     let event_loop = create_default_event_loop();
     let (proxy, receiver) = BlitzShellProxy::new(event_loop.create_proxy());
-    let mut application = BlitzApplication::new(proxy, receiver);
     let attributes = winit::window::WindowAttributes::default()
         .with_title("react-blitz-window")
         .with_surface_size(winit::dpi::LogicalSize::new(shot.width, shot.height));
-    let doc = Ticking { doc, tick: Once::new() };
-    application.add_window(WindowConfig::with_attributes(Box::new(doc), Timed::new(VelloCpuWindowRenderer::new()), attributes));
-    event_loop.run_app(application)?;
+    if gpu {
+        let mut application = BlitzApplication::new(proxy, receiver);
+        application.add_window(WindowConfig::with_attributes(doc, Timed::new(VelloWindowRenderer::new()), attributes));
+        event_loop.run_app(application)?;
+    } else {
+        let mut application = BlitzApplication::new(proxy, receiver);
+        application.add_window(WindowConfig::with_attributes(doc, Timed::new(VelloCpuWindowRenderer::new()), attributes));
+        event_loop.run_app(application)?;
+    }
     Ok(())
 }
 
+/// How often the page is turned for its timers.
+const TICK: Duration = Duration::from_millis(4);
+
 /// The document, woken every few ms so JS's timers run between input and frames, as a browser's
-/// loop runs them; each turn that ran JS is logged with its time.
+/// loop runs them; each turn that ran JS is logged with its time, and V8's heap every 5 s.
 struct Ticking {
     doc: ReactDocument<V8Engine>,
     tick: Once,
+    heap: Instant,
+    /// When the page was last turned: the shell polls after every event, and a turn costs a ms.
+    turned: Instant,
 }
 
 impl Document for Ticking {
@@ -133,7 +162,12 @@ impl Document for Ticking {
     }
 
     fn handle_ui_event(&mut self, event: UiEvent) {
+        let start = Instant::now();
         self.doc.handle_ui_event(event);
+        let ms = start.elapsed().as_secs_f64() * 1000.0;
+        if ms >= 1.0 {
+            eprintln!("react-blitz-window: event {ms:.1} ms");
+        }
     }
 
     fn poll(&mut self, cx: Option<TaskContext>) -> bool {
@@ -142,39 +176,54 @@ impl Document for Ticking {
             self.tick.call_once(|| {
                 std::thread::spawn(move || {
                     loop {
-                        std::thread::sleep(Duration::from_millis(4));
+                        std::thread::sleep(TICK);
                         waker.wake_by_ref();
                     }
                 });
             });
         }
         let start = Instant::now();
+        if start.duration_since(self.turned) < TICK {
+            return false;
+        }
+        self.turned = start;
         let ran = self.doc.poll(cx);
-        if ran {
-            eprintln!("react-blitz-window: js {:.1} ms", start.elapsed().as_secs_f64() * 1000.0);
+        let ms = start.elapsed().as_secs_f64() * 1000.0;
+        if ms >= 1.0 {
+            eprintln!("react-blitz-window: js {ms:.1} ms");
+        }
+        if self.heap.elapsed() >= Duration::from_secs(5) {
+            self.heap = Instant::now();
+            let nodes = self.doc.inner().tree().len();
+            let [used, total, physical, external, malloced] = self.doc.engine_mut().heap().map(|b| b as f64 / 1e6);
+            eprintln!(
+                "react-blitz-window: v8 heap used {used:.1} MB, total {total:.1}, physical {physical:.1}, external {external:.1}, malloced {malloced:.1}; {nodes} nodes of {} bytes",
+                std::mem::size_of::<blitz_dom::Node>()
+            );
         }
         ran
     }
 }
 
-/// The window's renderer, logging each frame: its paint and the time since the frame before.
-struct Timed {
-    renderer: VelloCpuWindowRenderer,
+/// The window's renderer, logging each frame: its paint, the part of it that built the scene, and
+/// the time since the frame before.
+struct Timed<R> {
+    renderer: R,
     frame: u64,
     last: Option<Instant>,
 }
 
-impl Timed {
-    fn new(renderer: VelloCpuWindowRenderer) -> Self {
+impl<R> Timed<R> {
+    fn new(renderer: R) -> Self {
         Self { renderer, frame: 0, last: None }
     }
 }
 
-impl RenderContext for Timed {}
+impl<R: WindowRenderer + 'static> RenderContext for Timed<R> {}
 
-impl WindowRenderer for Timed {
+impl<R: WindowRenderer + 'static> WindowRenderer for Timed<R> {
     type ScenePainter<'a>
-        = <VelloCpuWindowRenderer as WindowRenderer>::ScenePainter<'a>
+        = R::ScenePainter<'a>
     where
         Self: 'a;
 
@@ -204,11 +253,20 @@ impl WindowRenderer for Timed {
 
     fn render<F: FnOnce(&mut Self::ScenePainter<'_>)>(&mut self, draw_fn: F) {
         let start = Instant::now();
-        self.renderer.render(draw_fn);
+        let mut scene = 0.0;
+        self.renderer.render(|painter| {
+            let at = Instant::now();
+            draw_fn(painter);
+            scene = at.elapsed().as_secs_f64() * 1000.0;
+        });
         let paint = start.elapsed().as_secs_f64() * 1000.0;
         let since = self.last.map(|l| format!("{:.1} ms", start.duration_since(l).as_secs_f64() * 1000.0));
         self.last = Some(start);
         self.frame += 1;
-        eprintln!("react-blitz-window: frame {} paint {paint:.1} ms, since last {}", self.frame, since.as_deref().unwrap_or("-"));
+        eprintln!(
+            "react-blitz-window: frame {} paint {paint:.1} ms, since last {}, scene {scene:.1} ms",
+            self.frame,
+            since.as_deref().unwrap_or("-")
+        );
     }
 }
