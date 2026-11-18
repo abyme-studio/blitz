@@ -61,6 +61,14 @@ pub struct LaidBox {
     pub height: f64,
 }
 
+impl Shot {
+    /// The frame as Blitz takes it: its size in device pixels, and the scale.
+    pub fn viewport(&self) -> Viewport {
+        let device = |css: u32| (css as f32 * self.scale).round() as u32;
+        Viewport::new(device(self.width), device(self.height), self.scale, self.scheme)
+    }
+}
+
 /// The page's own clock steps a frame at a time, so the same page paints the same pixels.
 const FRAME: f64 = 1.0 / 60.0;
 
@@ -81,7 +89,7 @@ fn open(shot: &Shot) -> anyhow::Result<(ReactDocument<V8Engine>, f64)> {
             page: shot.page.clone(),
             query: shot.query.clone(),
             document: DocumentConfig {
-                viewport: Some(Viewport::new(shot.width, shot.height, shot.scale, shot.scheme)),
+                viewport: Some(shot.viewport()),
                 ..Default::default()
             },
             clock: Default::default(),
