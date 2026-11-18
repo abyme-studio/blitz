@@ -186,8 +186,9 @@ export function installWindow(): void {
   g.getComputedStyle = (el: BlitzNode) => host.computedStyle(el);
   g.requestAnimationFrame = (fn: (t: number) => void) => host.nextFrame(fn);
   g.cancelAnimationFrame = (h: number) => host.cancelFrame(h);
-  g.requestIdleCallback = (fn: (d: any) => void) => g.setTimeout(() => fn({ didTimeout: false, timeRemaining: () => 8 }), 1);
-  g.cancelIdleCallback = (h: number) => g.clearTimeout(h);
+  g.requestIdleCallback = (fn: (d: any) => void, options?: { timeout?: number }) =>
+    host.idle(() => fn({ didTimeout: false, timeRemaining: () => 8 }), options?.timeout);
+  g.cancelIdleCallback = (h: number) => host.cancelIdle(h);
   g.matchMedia = matchMedia;
   g.localStorage = new Storage();
   g.sessionStorage = new Storage();
