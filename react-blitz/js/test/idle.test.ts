@@ -49,3 +49,16 @@ test("with no frame, an idle callback runs at its latest time, once", async () =
   await wait(5);
   expect(ran).toBe(1);
 });
+
+test("an idle callback added after a frame waits for a frame of its own", async () => {
+  const ran: string[] = [];
+  idle(() => ran.push("first"));
+  frame({ time: 0 });
+  idle(() => ran.push("second"));
+  await wait(5);
+  expect(ran).toEqual(["first"]);
+  expect(asked).toBe(2);
+  frame({ time: 16 });
+  await wait(5);
+  expect(ran).toEqual(["first", "second"]);
+});
