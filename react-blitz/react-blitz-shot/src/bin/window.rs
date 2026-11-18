@@ -13,7 +13,7 @@ use std::num::NonZero;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
-use std::sync::{Arc, Once};
+use std::sync::Arc;
 use std::task::Context as TaskContext;
 use std::time::{Duration, Instant};
 
@@ -30,6 +30,7 @@ use react_blitz::{Clock, DistLoader, ReactDocument, ReactDocumentConfig};
 use react_blitz_shot::Shot;
 use react_blitz_shot::control::{Control, serve};
 use react_blitz_shot::phases::{Counts, Phases};
+use react_blitz_shot::tick::Tick;
 use react_blitz_v8::V8Engine;
 
 const USAGE: &str = "usage: react-blitz-window <dist> <query> [--control <socket>] [--size WxH] \
@@ -138,7 +139,7 @@ fn window(shot: &Shot, renderer: Renderer, bare: bool) -> anyhow::Result<()> {
             },
             engine,
         )?;
-        Box::new(Ticking { doc, tick: Once::new(), heap: Instant::now(), turned: Instant::now() })
+        Box::new(Ticking { doc, tick: Tick::default(), heap: Instant::now() })
     };
     let event_loop = create_default_event_loop();
     let (proxy, receiver) = BlitzShellProxy::new(event_loop.create_proxy());
@@ -164,9 +165,6 @@ fn window(shot: &Shot, renderer: Renderer, bare: bool) -> anyhow::Result<()> {
     }
     Ok(())
 }
-
-/// How often the page is turned for its timers.
-const TICK: Duration = Duration::from_millis(4);
 
 thread_local! {
     /// The work done since the last frame was drawn: the input and the turns, and the resolves
@@ -206,22 +204,20 @@ fn ms(since: Instant) -> f64 {
     since.elapsed().as_secs_f64() * 1000.0
 }
 
-/// The document, woken every few ms so JS's timers run between input and frames, as a browser's
-/// loop runs them; its input and turns are timed for the frame they lead to, and V8's heap is
-/// logged every 5 s.
+/// The document, woken when a timer of JS's or a frame of its own is due, so they run between
+/// input and frames as a browser's loop runs them, and not woken otherwise; its input and turns
+/// are timed for the frame they lead to, and V8's heap is logged every 5 s.
 struct Ticking {
     doc: ReactDocument<V8Engine>,
-    tick: Once,
+    tick: Tick,
     heap: Instant,
-    /// When the page was last turned: the shell polls after every event; one turn a tick is enough.
-    turned: Instant,
 }
 
 impl Ticking {
     /// Log the frame last drawn, if one waits: the resolves the document has counted since the
     /// last input or turn are its redraw's.
     fn settle(&mut self) {
-        let redraw = self.doc.inner_mut().take_resolve_stats();
+        let redraw = self.doc.shared().doc.borrow_mut().take_resolve_stats();
         match DRAWN.take() {
             Some(drawn) => drawn.log(&redraw),
             // A resolve outside a frame (the window's resume): the next frame's.
@@ -235,7 +231,7 @@ impl Ticking {
     /// Add `start` to now to the frame being made, as input or a turn: JS, and the resolves it ran.
     fn script(&mut self, start: Instant) {
         let within = ms(start);
-        let ran = self.doc.inner_mut().take_resolve_stats();
+        let ran = self.doc.shared().doc.borrow_mut().take_resolve_stats();
         SINCE.with_borrow_mut(|(phases, counts)| {
             phases.add_script(within, &ran);
             counts.add_resolves(&ran);
@@ -262,25 +258,15 @@ impl Document for Ticking {
     }
 
     fn poll(&mut self, cx: Option<TaskContext>) -> bool {
-        if let Some(cx) = &cx {
-            let waker = cx.waker().clone();
-            self.tick.call_once(|| {
-                std::thread::spawn(move || {
-                    loop {
-                        std::thread::sleep(TICK);
-                        waker.wake_by_ref();
-                    }
-                });
-            });
-        }
         self.settle();
-        let start = Instant::now();
-        if start.duration_since(self.turned) < TICK {
+        if !self.tick.due(&self.doc, cx.as_ref().map(|cx| cx.waker())) {
+            self.tick.rest(&self.doc);
             return false;
         }
-        self.turned = start;
+        let start = Instant::now();
         let ran = self.doc.poll(cx);
         self.script(start);
+        self.tick.rest(&self.doc);
         if self.heap.elapsed() >= Duration::from_secs(5) {
             self.heap = Instant::now();
             let nodes = self.doc.inner().tree().len();
