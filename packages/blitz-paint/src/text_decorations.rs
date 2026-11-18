@@ -240,6 +240,8 @@ pub(crate) struct DecorationRunGeometry {
 /// paint a single line spanning the box rather than one segment per run.
 pub(crate) struct LineDecoration {
     pub(crate) node_id: NodeId,
+    /// The sticky offset of the run's inline box: one box's runs at two offsets draw apart.
+    pub(crate) sticky_offset: (f32, f32),
     pub(crate) deco: ResolvedDecoration,
     pub(crate) min_x: f64,
     pub(crate) max_x: f64,
@@ -454,6 +456,11 @@ pub(crate) fn flush_line_decorations(
     // Draw innermost boxes first so ancestors' decorations paint on top, matching the
     // per-run drawing order this replaced (`stack.iter().rev()`).
     for acc in deco_boxes.iter().rev() {
+        let transform = transform
+            * Affine::translate((
+                acc.sticky_offset.0 as f64 * scale,
+                acc.sticky_offset.1 as f64 * scale,
+            ));
         let shadow_clip = shadow.map(|(_, clip)| clip);
         if let Some(clip) = shadow_clip
             && (acc.max_x <= clip.x0 || acc.min_x >= clip.x1)
