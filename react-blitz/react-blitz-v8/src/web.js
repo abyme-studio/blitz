@@ -92,11 +92,24 @@
     count() {},
   };
 
-  // Timers.
+  // Timers. On a stepped clock they fall due on that clock: the engine's pump runs one due timer
+  // at a time (`__reactBlitzTimers`), earliest first, then its microtasks, as a browser's loop does.
   const timers = new Map();
+  const stepped = new Map();
   let nextTimer = 1;
+  let nesting = 0;
   function makeTimer(fn, ms, args, repeat) {
     const id = nextTimer++;
+    const delay = Math.max(0, Number(ms) || 0);
+    if (ops.op_rb_stepped()) {
+      const cb = typeof fn === "function" ? () => fn(...args) : () => {};
+      // HTML's clamp: a timer nested more than 5 deep waits at least 4 ms, so a chain of 0 ms
+      // timeouts moves with the clock instead of spinning the frame.
+      const level = nesting + 1;
+      const wait = level > 5 ? Math.max(delay, 4) : delay;
+      stepped.set(id, { at: ops.op_rb_now() + wait, delay: wait, cb, repeat, level });
+      return id;
+    }
     const cb = typeof fn === "function" ? () => {
       if (!repeat) timers.delete(id);
       fn(...args);
@@ -105,12 +118,34 @@
     return id;
   }
   function clear(id) {
+    stepped.delete(id);
     const t = timers.get(id);
     if (t) {
       core.cancelTimer(t);
       timers.delete(id);
     }
   }
+  g.__reactBlitzTimers = () => {
+    const now = ops.op_rb_now();
+    let next;
+    for (const [id, t] of stepped) {
+      if (t.at <= now && (!next || t.at < next[1].at)) next = [id, t];
+    }
+    if (!next) return;
+    const [id, t] = next;
+    // A browser clamps a repeating timer to 4 ms, so one of 0 ms cannot spin a frame forever.
+    if (t.repeat) t.at += Math.max(t.delay, 4);
+    else stepped.delete(id);
+    ops.op_rb_timer_ran();
+    nesting = t.level;
+    try {
+      t.cb();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      nesting = 0;
+    }
+  };
   g.setTimeout = (fn, ms = 0, ...args) => makeTimer(fn, ms, args, false);
   g.setInterval = (fn, ms = 0, ...args) => makeTimer(fn, ms, args, true);
   g.clearTimeout = clear;
