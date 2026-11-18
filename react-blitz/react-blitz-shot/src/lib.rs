@@ -11,11 +11,13 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use anyrender::{AntiAliasing, ImageRenderer as _, PaintScene as _};
+use anyrender::{AntiAliasing, ImageRenderer, PaintScene as _};
+use anyrender_vello::VelloImageRenderer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use blitz_dom::util::Color;
 use blitz_dom::{Document as _, DocumentConfig};
 use blitz_paint::paint_scene;
+use blitz_traits::events::{BlitzWheelDelta, BlitzWheelEvent, PointerCoords, UiEvent};
 use blitz_traits::shell::{ColorScheme, Viewport};
 use peniko::Fill;
 use peniko::kurbo::Rect;
@@ -63,6 +65,14 @@ pub struct LaidBox {
 const FRAME: f64 = 1.0 / 60.0;
 
 pub fn shoot(shot: &Shot) -> anyhow::Result<Image> {
+    let (mut doc, _) = open(shot)?;
+    let boxes = laid_boxes(&*doc.inner());
+    let (width, height, rgba) = paint(&mut doc.inner_mut(), shot.width, shot.height, shot.scale);
+    Ok(Image { width, height, rgba, boxes })
+}
+
+/// The page, run until it is ready and laid out, and its clock.
+fn open(shot: &Shot) -> anyhow::Result<(ReactDocument<V8Engine>, f64)> {
     let loader = Rc::new(DistLoader::new(&shot.dist)?);
     let engine = V8Engine::new(loader)?;
     let mut doc = ReactDocument::open(
@@ -100,12 +110,86 @@ pub fn shoot(shot: &Shot) -> anyhow::Result<Image> {
         std::thread::sleep(Duration::from_millis(2));
     }
     // One more turn, so what ready's commit asked for (a frame, a measure) is drawn.
+    time += FRAME;
     doc.poll(None);
-    doc.inner_mut().resolve(time + FRAME);
+    doc.inner_mut().resolve(time);
+    Ok((doc, time))
+}
 
-    let boxes = laid_boxes(&*doc.inner());
-    let (width, height, rgba) = paint(&mut doc.inner_mut(), shot.width, shot.height, shot.scale);
-    Ok(Image { width, height, rgba, boxes })
+/// One frame of [`scroll_frames`], in ms.
+#[derive(Clone, Copy)]
+pub struct ScrollFrame {
+    /// Building the scene from the paint tree.
+    pub scene: f64,
+    /// Turning the scene into pixels in memory: on the GPU, its draw and the copy back.
+    pub raster: f64,
+}
+
+/// The page scrolled by a wheel of `scroll` CSS pixels (down when positive) at its middle before
+/// each of `frames` frames, each painted whole with no window by one renderer kept between them:
+/// Vello's on the GPU, or its CPU one. Answers each frame's times and the last frame.
+pub fn scroll_frames(shot: &Shot, frames: usize, scroll: f64, gpu: bool) -> anyhow::Result<(Vec<ScrollFrame>, Image)> {
+    if gpu { scroll_with::<VelloImageRenderer>(shot, frames, scroll) } else { scroll_with::<VelloCpuImageRenderer>(shot, frames, scroll) }
+}
+
+fn scroll_with<R: ImageRenderer>(shot: &Shot, frames: usize, scroll: f64) -> anyhow::Result<(Vec<ScrollFrame>, Image)> {
+    let (mut doc, mut time) = open(shot)?;
+    let width = (shot.width as f32 * shot.scale).round() as u32;
+    let height = (shot.height as f32 * shot.scale).round() as u32;
+    let (x, y) = (shot.width as f32 / 2.0, shot.height as f32 / 2.0);
+    let mut renderer = R::new(width, height);
+    let mut rgba = Vec::new();
+    let mut times = Vec::with_capacity(frames);
+    for _ in 0..frames {
+        let at = doc.inner().viewport_scroll();
+        doc.handle_ui_event(UiEvent::Wheel(BlitzWheelEvent {
+            // Blitz's wheel, as the window makes it from winit's: positive scrolls up.
+            delta: BlitzWheelDelta::Pixels(0.0, -scroll),
+            coords: PointerCoords {
+                screen_x: x,
+                screen_y: y,
+                client_x: x,
+                client_y: y,
+                page_x: x + at.x as f32,
+                page_y: y + at.y as f32,
+            },
+            buttons: Default::default(),
+            mods: Default::default(),
+            element: Default::default(),
+        }));
+        time += FRAME;
+        doc.poll(None);
+        doc.inner_mut().resolve(time);
+
+        let start = Instant::now();
+        let mut scene_ms = 0.0;
+        let mut inner = doc.inner_mut();
+        renderer.render_to_vec(
+            |scene| {
+                let at = Instant::now();
+                scene.fill(
+                    Fill::NonZero,
+                    Default::default(),
+                    Color::WHITE,
+                    Default::default(),
+                    &Rect::new(0.0, 0.0, width as f64, height as f64),
+                    AntiAliasing::Enabled,
+                );
+                paint_scene(scene, &mut inner, shot.scale as f64, width, height, 0, 0);
+                scene_ms = at.elapsed().as_secs_f64() * 1000.0;
+            },
+            &mut rgba,
+        );
+        times.push(ScrollFrame { scene: scene_ms, raster: start.elapsed().as_secs_f64() * 1000.0 - scene_ms });
+        renderer.reset();
+    }
+    Ok((times, Image { width, height, rgba, boxes: Vec::new() }))
+}
+
+/// The middle of `values`, sorted: of an even count, the upper of its middle two.
+pub fn median(mut values: Vec<f64>) -> f64 {
+    values.sort_by(f64::total_cmp);
+    values.get(values.len() / 2).copied().unwrap_or(0.0)
 }
 
 /// Paint the document's frame as it stands, on white, by `blitz_paint::paint_scene` into Vello's
