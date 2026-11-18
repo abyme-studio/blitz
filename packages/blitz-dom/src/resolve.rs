@@ -111,6 +111,12 @@ impl BaseDocument {
         timer.record_time("layout");
         self.nodes.bump_geometry_generation();
 
+        // Sticky shifts are part of this frame's geometry: resolve them before
+        // anything is memoised against the new generation (hoisted-child
+        // positions, the hit test in `refresh_hover`).
+        self.update_sticky_offsets();
+        timer.record_time("sticky");
+
         // Resolve transforms
         let resolve_all = self.flags.contains(DocumentFlags::RESOLVE_ALL_TRANSFORMS);
         self.flags.remove(DocumentFlags::RESOLVE_ALL_TRANSFORMS);
