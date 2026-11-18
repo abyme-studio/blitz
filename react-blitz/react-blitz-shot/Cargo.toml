@@ -1,6 +1,6 @@
 [package]
 name = "react-blitz-shot"
-description = "Paint a built React page, drawn by Blitz, to a PNG with no window"
+description = "Paint a built React page, drawn by Blitz, to a PNG with no window; and react-blitz-window, a window drive can step and steer"
 version.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -14,14 +14,23 @@ path = "src/lib.rs"
 name = "react-blitz-shot"
 path = "src/main.rs"
 
+[[bin]]
+name = "react-blitz-window"
+path = "src/bin/window.rs"
+
 [dependencies]
 react-blitz = { path = "../react-blitz" }
 react-blitz-v8 = { path = "../react-blitz-v8" }
 blitz-dom = { workspace = true }
 blitz-paint = { workspace = true, features = ["svg"] }
 blitz-traits = { workspace = true }
+blitz-shell = { workspace = true }
+winit = "=0.31.0-beta.4"
+atomic_refcell = "0.1.13"
+keyboard-types = "0.8"
+serde_json = "1"
 anyrender = "0.15.0"
-anyrender_vello_cpu = "0.19.0"
+anyrender_vello_cpu = { version = "0.19.0", features = ["softbuffer_window_renderer"] }
 peniko = "0.6.0"
 png = "0.18"
 anyhow = "1"

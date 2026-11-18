@@ -192,13 +192,31 @@ fn op_rb_frame_in(state: &mut OpState) -> String {
     state.try_take::<FrameIn>().map(|f| f.0).unwrap_or_default()
 }
 
-/// Milliseconds since the isolate started: `performance.now()`.
+/// Milliseconds on the page's clock: `performance.now()`. Before the host is registered, since
+/// the isolate started.
 #[op2(fast)]
 fn op_rb_now(state: &mut OpState) -> f64 {
+    if let Some(host) = state.try_borrow_mut::<HostBox>() {
+        return host.0.now();
+    }
     if !state.has::<Started>() {
         state.put(Started(Instant::now()));
     }
     state.borrow::<Started>().0.elapsed().as_secs_f64() * 1000.0
+}
+
+/// Whether the page's clock is stepped: a timer made now falls due on it.
+#[op2(fast)]
+fn op_rb_stepped(state: &mut OpState) -> bool {
+    state.try_borrow_mut::<HostBox>().is_some_and(|h| h.0.stepped())
+}
+
+/// A stepped timer ran: the engine's pump runs microtasks, then looks for the next.
+pub struct TimerRan;
+
+#[op2(fast)]
+fn op_rb_timer_ran(state: &mut OpState) {
+    state.put(TimerRan);
 }
 
 #[op2(fast)]
@@ -258,7 +276,8 @@ deno_core::extension!(
         op_rb_style, op_rb_focus, op_rb_blur, op_rb_focused, op_rb_matches, op_rb_find,
         op_rb_find_all, op_rb_observe, op_rb_frame, op_rb_viewport, op_rb_adopt, op_rb_at, op_rb_tag,
         op_rb_attr, op_rb_children, op_rb_has_focus, op_rb_address, op_rb_log, op_rb_event_in,
-        op_rb_event_out, op_rb_frame_in, op_rb_now, op_rb_random, op_rb_url,
+        op_rb_event_out, op_rb_frame_in, op_rb_now, op_rb_stepped, op_rb_timer_ran, op_rb_random,
+        op_rb_url,
     ],
 );
 
