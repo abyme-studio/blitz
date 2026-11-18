@@ -11,7 +11,8 @@ on upstream touches none of them.
 - `react-blitz/`: `ReactDocument` (Blitz's `Document` over a `BaseDocument` and a JS engine) and the
   `ScriptEngine` trait.
 - `react-blitz-v8/`: V8 through `deno_core`, behind `ScriptEngine`.
-- `react-blitz-shot/`: paints a built page to a PNG, offscreen.
+- `react-blitz-shot/`: paints a built page to a PNG, offscreen; and `react-blitz-window`, the page in a
+  window, or with `--control` on a stepped 60 Hz clock that drive steers over a socket (`src/control.rs`).
 - `tests/golden/`: one commit file per op family, written by `js/`'s encoder test and read by
   `blitz-commit`'s test.
 - `vendor/`: patched copies of crates Blitz takes from crates.io (Stylo, Parley), until a release
