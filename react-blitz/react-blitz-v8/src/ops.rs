@@ -113,6 +113,11 @@ fn op_rb_viewport(state: &mut OpState) -> Vec<f64> {
 }
 
 #[op2(fast)]
+fn op_rb_text_width(state: &mut OpState, #[string] text: &str, #[string] family: &str, size: f64, weight: f64, italic: bool) -> f64 {
+    host(state).text_width(text, family, size, weight, italic)
+}
+
+#[op2(fast)]
 fn op_rb_adopt(state: &mut OpState, #[string] which: &str) -> u32 {
     host(state).adopt(which)
 }
@@ -274,7 +279,7 @@ deno_core::extension!(
     ops = [
         op_rb_commit, op_rb_rect, op_rb_metrics, op_rb_offset_parent, op_rb_scroll, op_rb_scroll_to,
         op_rb_style, op_rb_focus, op_rb_blur, op_rb_focused, op_rb_matches, op_rb_find,
-        op_rb_find_all, op_rb_observe, op_rb_frame, op_rb_viewport, op_rb_adopt, op_rb_at, op_rb_tag,
+        op_rb_find_all, op_rb_observe, op_rb_frame, op_rb_viewport, op_rb_text_width, op_rb_adopt, op_rb_at, op_rb_tag,
         op_rb_attr, op_rb_children, op_rb_has_focus, op_rb_address, op_rb_log, op_rb_event_in,
         op_rb_event_out, op_rb_frame_in, op_rb_now, op_rb_stepped, op_rb_timer_ran, op_rb_random,
         op_rb_url,
