@@ -22,6 +22,11 @@ pub struct VelloScenePainter<'r, 's> {
     pub(crate) pattern_scenes: FxHashMap<u64, vello::Scene>,
     /// The area of the scene that is rendered, if known. Pattern tiles outside it are skipped.
     pub(crate) cull_rect: Option<Rect>,
+    /// The scenes set aside while a fragment is drawn, the frame's own first.
+    pub(crate) outer: Vec<vello::Scene>,
+    /// The renderer's kept fragments, each in Vello's own encoding; none for a painter with
+    /// no renderer behind it.
+    pub(crate) fragments: Option<&'r mut FxHashMap<ResourceId, vello::Scene>>,
 }
 
 impl RenderContext for VelloScenePainter<'_, '_> {
@@ -51,6 +56,9 @@ impl RenderContext for VelloScenePainter<'_, '_> {
         {
             renderer.unregister_texture(handle);
         }
+        if let Some(fragments) = &mut self.fragments {
+            fragments.remove(&resource_id);
+        }
     }
 
     fn renderer_specific_context(&self) -> Option<Box<dyn std::any::Any>> {
@@ -68,6 +76,8 @@ impl VelloScenePainter<'_, '_> {
             inner: scene,
             pattern_scenes: FxHashMap::default(),
             cull_rect: None,
+            outer: Vec::new(),
+            fragments: None,
         }
     }
 }
@@ -87,6 +97,8 @@ impl VelloScenePainter<'_, '_> {
             inner: &mut scene,
             pattern_scenes: std::mem::take(&mut self.pattern_scenes),
             cull_rect: Some(pattern.tile()),
+            outer: Vec::new(),
+            fragments: None,
         };
         pattern.scene().replay(&mut painter, Affine::IDENTITY);
         self.pattern_scenes = painter.pattern_scenes;
@@ -300,6 +312,32 @@ impl PaintScene for VelloScenePainter<'_, '_> {
             t.glyph_runs += 1;
             t.glyphs += drawn;
         });
+    }
+
+    fn begin_fragment(&mut self) -> bool {
+        if self.fragments.is_none() {
+            return false;
+        }
+        self.outer.push(std::mem::take(self.inner));
+        true
+    }
+
+    fn end_fragment(&mut self) -> Option<ResourceId> {
+        let outer = self.outer.pop()?;
+        let fragment = std::mem::replace(self.inner, outer);
+        let id = ResourceId::new();
+        self.fragments.as_mut()?.insert(id, fragment);
+        Some(id)
+    }
+
+    fn append_fragment(&mut self, fragment: ResourceId, transform: Affine) -> bool {
+        let _encoding = crate::frame_times::Encoding::start();
+        let Some(fragment) = self.fragments.as_ref().and_then(|kept| kept.get(&fragment)) else {
+            return false;
+        };
+        // Vello copies the fragment's encoding under the transform: nothing is encoded again.
+        self.inner.append(fragment, Some(transform));
+        true
     }
 
     fn draw_box_shadow(
