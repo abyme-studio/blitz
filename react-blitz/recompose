@@ -1,0 +1,41 @@
+#!/bin/sh
+# Rebuild `abyme`: upstream/main, then each branch in react-blitz/fixes in order, then
+# react-blitz, by cherry-pick (never a merge). Each fix and react-blitz is first rebased on
+# upstream/main, so a stale one stops here with its conflict.
+#   react-blitz/recompose          build `abyme` locally, and say its tip
+#   react-blitz/recompose --push   also force-push `abyme` and every rebased branch to origin
+#   react-blitz/recompose --pin    also tag the tip pin/<short-sha> and push the tag
+# abyme pins a sha on `abyme` only with its pin/ tag, so the sha stays reachable after a recompose.
+set -eu
+push=; pin=
+for a in "$@"; do
+  case $a in --push) push=1 ;; --pin) push=1; pin=1 ;; *) echo "unknown: $a" >&2; exit 2 ;; esac
+done
+repo=$(git rev-parse --show-toplevel)
+git -C "$repo" fetch -q upstream main
+git -C "$repo" fetch -q origin
+tmp=$(mktemp -d)
+trap 'git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || true' EXIT
+git -C "$repo" worktree add -q --detach "$tmp" upstream/main
+cd "$tmp"
+order=$(git show origin/react-blitz:react-blitz/fixes | sed 's/#.*//' | grep . || true)
+picks=
+for b in $order react-blitz; do
+  git checkout -q --detach "origin/$b"
+  git rebase -q upstream/main
+  picks="$picks $(git rev-parse HEAD)"
+  [ -n "$push" ] && git push -q --force-with-lease="$b:origin/$b" origin "HEAD:refs/heads/$b"
+done
+git checkout -q --detach upstream/main
+for c in $picks; do
+  git cherry-pick "upstream/main..$c" >/dev/null
+done
+tip=$(git rev-parse --short=9 HEAD)
+git -C "$repo" branch -f abyme "$tip"
+echo "abyme at $tip: upstream/main $(git rev-parse --short=9 upstream/main) + $(echo $order | wc -w | tr -d ' ') fixes + react-blitz"
+[ -n "$push" ] && git push -q --force-with-lease origin abyme:abyme
+if [ -n "$pin" ]; then
+  git tag -f "pin/$tip" "$tip" >/dev/null
+  git push -q origin "pin/$tip"
+  echo "pinned: pin/$tip"
+fi
