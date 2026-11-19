@@ -2,9 +2,16 @@
 //! A plain glyph goes to the single-channel page as coverage, tinted when drawn; a colour glyph
 //! (an emoji) and an image go to the colour page, premultiplied. Pages are placed by `etagere`.
 //! An image above [`OWN_TEXTURE`] px on a side gets a texture of its own. Nothing here touches the
-//! GPU: what is new is queued as [`Upload`]s for the frame's render.
+//! GPU: what is new is queued as [`Upload`]s for the frame's render. What the shaders cannot
+//! draw is drawn by `vello_cpu` into the colour page as one entry, or a texture of its own.
 
-use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash as _, Hasher as _};
+
+use anyrender::ImageRenderer as _;
+use anyrender::recording::Scene;
+use anyrender_vello_cpu::VelloCpuImageRenderer;
 
 use etagere::{AtlasAllocator, size2};
 use kurbo::Affine;
@@ -29,7 +36,7 @@ pub(crate) enum Page {
     Mono,
     /// The colour page: premultiplied RGBA.
     Color,
-    /// An image's own texture, by its blob's id.
+    /// A texture of its own: an image's, by its blob's id, or a CPU drawing's, by its key.
     Image(u64),
 }
 
@@ -89,8 +96,12 @@ pub(crate) struct Atlas {
     color: AtlasAllocator,
     glyphs: HashMap<GlyphKey, Option<Entry>>,
     images: HashMap<u64, Entry>,
-    /// The images that have a texture of their own, by id, with their size.
+    /// What the CPU drew, by a hash of its moved recording and size.
+    drawn: HashMap<u64, Entry>,
+    /// Textures of their own, by id, with their size; those drawn this frame; and those to free.
     pub(crate) own: HashMap<u64, (u32, u32)>,
+    own_used: HashSet<u64>,
+    pub(crate) freed: Vec<u64>,
     /// A page filled this frame: it is emptied at the next frame's start.
     full: bool,
     pub(crate) uploads: Vec<Upload>,
@@ -106,7 +117,10 @@ impl Default for Atlas {
             color: AtlasAllocator::new(size2(PAGE as i32, PAGE as i32)),
             glyphs: HashMap::new(),
             images: HashMap::new(),
+            drawn: HashMap::new(),
             own: HashMap::new(),
+            own_used: HashSet::new(),
+            freed: Vec::new(),
             full: false,
             uploads: Vec::new(),
             raster: RenderContext::new(1, 1),
@@ -119,11 +133,20 @@ impl Default for Atlas {
 impl Atlas {
     /// The frame's start: a page that filled last frame is emptied, and its glyphs drawn anew.
     pub(crate) fn begin_frame(&mut self) {
+        // A texture of its own not drawn last frame is freed.
+        let used = std::mem::take(&mut self.own_used);
+        let gone: Vec<u64> = self.own.keys().filter(|id| !used.contains(id)).copied().collect();
+        for id in gone {
+            self.own.remove(&id);
+            self.drawn.retain(|_, e| e.page != Page::Image(id));
+            self.freed.push(id);
+        }
         if self.full {
             self.mono.clear();
             self.color.clear();
             self.glyphs.clear();
             self.images.clear();
+            self.drawn.clear();
             self.full = false;
             frame_times::add(|t| t.atlas_resets += 1);
         }
@@ -225,12 +248,14 @@ impl Atlas {
             return Some(*entry);
         }
         if self.own.contains_key(&id) {
+            self.own_used.insert(id);
             return Some(Entry { page: Page::Image(id), uv: [0.0, 0.0, image.width as f32, image.height as f32], offset: [0.0; 2] });
         }
         let bytes = premultiplied_rgba(image);
         frame_times::add(|t| t.images_added += 1);
         if image.width > OWN_TEXTURE || image.height > OWN_TEXTURE {
             self.own.insert(id, (image.width, image.height));
+            self.own_used.insert(id);
             self.uploads.push(Upload { page: Page::Image(id), rect: [0, 0, image.width, image.height], bytes });
             return Some(Entry { page: Page::Image(id), uv: [0.0, 0.0, image.width as f32, image.height as f32], offset: [0.0; 2] });
         }
@@ -238,6 +263,38 @@ impl Atlas {
         self.uploads.push(Upload { page: Page::Color, rect: [at.0, at.1, image.width, image.height], bytes });
         let entry = Entry { page: Page::Color, uv: [at.0 as f32, at.1 as f32, image.width as f32, image.height as f32], offset: [0.0; 2] };
         self.images.insert(id, entry);
+        Some(entry)
+    }
+
+    /// What `scene` paints over `width` by `height` device pixels from its origin, drawn by
+    /// `vello_cpu` the first time and kept, so the same drawing scrolled is drawn once.
+    pub(crate) fn drawn(&mut self, scene: &Scene, width: u32, height: u32) -> Option<Entry> {
+        let mut hasher = DefaultHasher::new();
+        (width, height).hash(&mut hasher);
+        format!("{:?}", scene.commands).hash(&mut hasher);
+        let key = hasher.finish();
+        if let Some(entry) = self.drawn.get(&key) {
+            if let Page::Image(id) = entry.page {
+                self.own_used.insert(id);
+            }
+            return Some(*entry);
+        }
+        let mut renderer = VelloCpuImageRenderer::new(width, height);
+        let mut bytes = Vec::new();
+        renderer.render_to_vec(|painter| scene.replay(painter, Affine::IDENTITY), &mut bytes);
+        frame_times::add(|t| t.cpu_added += 1);
+        let uv = [0.0, 0.0, width as f32, height as f32];
+        let entry = if width > OWN_TEXTURE || height > OWN_TEXTURE {
+            self.own.insert(key, (width, height));
+            self.own_used.insert(key);
+            self.uploads.push(Upload { page: Page::Image(key), rect: [0, 0, width, height], bytes });
+            Entry { page: Page::Image(key), uv, offset: [0.0; 2] }
+        } else {
+            let at = self.place(Page::Color, width, height)?;
+            self.uploads.push(Upload { page: Page::Color, rect: [at.0, at.1, width, height], bytes });
+            Entry { page: Page::Color, uv: [at.0 as f32, at.1 as f32, width as f32, height as f32], offset: [0.0; 2] }
+        };
+        self.drawn.insert(key, entry);
         Some(entry)
     }
 
@@ -279,6 +336,6 @@ fn premultiplied_rgba(image: &ImageData) -> Vec<u8> {
 
 impl std::fmt::Debug for Atlas {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Atlas").field("glyphs", &self.glyphs.len()).field("images", &self.images.len()).field("full", &self.full).finish()
+        f.debug_struct("Atlas").field("glyphs", &self.glyphs.len()).field("images", &self.images.len()).field("drawn", &self.drawn.len()).field("full", &self.full).finish()
     }
 }
