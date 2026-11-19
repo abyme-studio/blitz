@@ -373,7 +373,10 @@ fn fs_atlas_sprite(input: AtlasSpriteVarying) -> @location(0) vec4<f32> {
         return premultiplied(sprite.color, coverage * clip);
     }
     // A colour glyph or an image: premultiplied texels at the sprite's alpha.
+    // Sampled no nearer its edge than half a texel, so a scaled image never blends in its
+    // neighbour in the atlas: it clamps to its own edge, as Vello's does.
     let size = vec2<f32>(textureDimensions(atlas_color));
-    let texel = textureSampleLevel(atlas_color, atlas_sampler, input.texel / size, 0.0);
+    let at = clamp(input.texel, sprite.uv.xy + 0.5, sprite.uv.xy + sprite.uv.zw - 0.5);
+    let texel = textureSampleLevel(atlas_color, atlas_sampler, at / size, 0.0);
     return texel * (sprite.color.a * clip);
 }
