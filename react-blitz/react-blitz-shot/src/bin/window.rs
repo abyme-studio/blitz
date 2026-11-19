@@ -359,7 +359,8 @@ impl<R: WindowRenderer + 'static> WindowRenderer for Timed<R> {
             phases.render = (drawn - scene - phases.present).max(0.0);
             counts.glyph_runs = quads.glyph_runs;
             counts.glyphs = quads.glyphs;
-            counts.quads = quads.quads + quads.shadows;
+            counts.quads = quads.quads + quads.shadows + quads.sprites;
+            counts.glyph_outlines = quads.glyphs_added;
             counts.draws = quads.draws;
             counts.left_out = quads.left_out.values().sum();
         } else if gpu.render.is_zero() {
