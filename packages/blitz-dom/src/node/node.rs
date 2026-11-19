@@ -1780,11 +1780,13 @@ impl Node {
 
     /// The node whose box this node's `Layout.location` is relative to: the
     /// `oof_containing_block` for a hoisted out-of-flow box, otherwise the
-    /// `layout_parent`.
+    /// `layout_parent`. None when that node has since been dropped: a node taken out of the
+    /// tree keeps the ids of its last layout, and every walk up the containing blocks stops here.
     pub fn containing_block(&self) -> Option<NodeId> {
         self.oof_containing_block
             .get()
             .or_else(|| self.layout_parent.get())
+            .filter(|id| self.tree().contains_key(*id))
     }
 
     /// Computes the Document-relative coordinates of the `Node`
