@@ -1,5 +1,5 @@
 //! `react-blitz-window <dist> <query> [--control <socket>] [--size WxH] [--scale N]
-//! [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu|hybrid|quads] [--bare]`
+//! [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu|hybrid] [--bare]`
 //!
 //! Without `--control`: `blitz-shell` with a `ReactDocument` over the build, on wall time, painted
 //! by Vello's GPU renderer or, with `--renderer cpu`, its CPU one (the shot's), into a window; each
@@ -19,7 +19,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use anyrender::{ImageRenderer, RenderContext, WindowHandle, WindowRenderer};
-use anyrender_quads::QuadsWindowRenderer;
 use anyrender_vello::VelloWindowRenderer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use anyrender_vello_gpu::VelloGpuWindowRenderer;
@@ -35,7 +34,7 @@ use react_blitz_shot::tick::Tick;
 use react_blitz_v8::V8Engine;
 
 const USAGE: &str = "usage: react-blitz-window <dist> <query> [--control <socket>] [--size WxH] \
-[--scale N] [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu|hybrid|quads] [--bare]";
+[--scale N] [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--renderer cpu|gpu|hybrid] [--bare]";
 
 fn main() -> ExitCode {
     match run() {
@@ -81,8 +80,7 @@ fn run() -> anyhow::Result<()> {
                     "cpu" => Renderer::Cpu,
                     "gpu" => Renderer::Gpu,
                     "hybrid" => Renderer::Hybrid,
-                    "quads" => Renderer::Quads,
-                    other => bail!("--renderer is cpu, gpu, hybrid or quads, not {other}"),
+                    other => bail!("--renderer is cpu, gpu or hybrid, not {other}"),
                 }
             }
             "--bare" => bare = true,
@@ -109,13 +107,12 @@ fn run() -> anyhow::Result<()> {
 }
 
 /// What draws the window: Vello's compute passes on the GPU, its strips on the CPU with one GPU
-/// pass (`hybrid`), its CPU renderer, or instanced quads on wgpu (`quads`, anyrender_quads).
+/// pass (`hybrid`), or its CPU renderer.
 #[derive(Clone, Copy)]
 enum Renderer {
     Gpu,
     Hybrid,
     Cpu,
-    Quads,
 }
 
 /// The page in a window, on wall time; `bare`, an empty document in its place.
@@ -163,11 +160,6 @@ fn window(shot: &Shot, renderer: Renderer, bare: bool) -> anyhow::Result<()> {
         Renderer::Cpu => {
             let mut application = BlitzApplication::new(proxy, receiver);
             application.add_window(WindowConfig::with_attributes(doc, Timed::new(Soft::new()), attributes));
-            event_loop.run_app(application)?;
-        }
-        Renderer::Quads => {
-            let mut application = BlitzApplication::new(proxy, receiver);
-            application.add_window(WindowConfig::with_attributes(doc, Timed::new(QuadsWindowRenderer::new()), attributes));
             event_loop.run_app(application)?;
         }
     }
@@ -349,21 +341,9 @@ impl<R: WindowRenderer + 'static> WindowRenderer for Timed<R> {
         let drawn = ms(start);
         let secs = |d: Duration| d.as_secs_f64() * 1000.0;
         let gpu = anyrender_vello::take_frame_times();
-        let quads = anyrender_quads::take_frame_times();
         let (mut phases, mut counts) = SINCE.take();
         counts.take_fragments();
-        if !quads.render.is_zero() {
-            phases.encode = secs(quads.encode).min(scene);
-            phases.scene = scene - phases.encode;
-            phases.present = secs(quads.acquire + quads.present);
-            phases.render = (drawn - scene - phases.present).max(0.0);
-            counts.glyph_runs = quads.glyph_runs;
-            counts.glyphs = quads.glyphs;
-            counts.quads = quads.quads + quads.shadows + quads.sprites;
-            counts.glyph_outlines = quads.glyphs_added;
-            counts.draws = quads.draws;
-            counts.left_out = quads.left_out.values().sum();
-        } else if gpu.render.is_zero() {
+        if gpu.render.is_zero() {
             phases.present = PRESENT.take();
             phases.scene = scene;
             phases.render = (drawn - scene - phases.present).max(0.0);
