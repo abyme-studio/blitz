@@ -314,7 +314,9 @@ impl selectors::Element for BlitzNode<'_> {
             NonTSPseudoClass::Open => self.element_state().contains(ElementState::OPEN),
             NonTSPseudoClass::Optional => false,
             NonTSPseudoClass::OutOfRange => false,
-            NonTSPseudoClass::PopoverOpen => false,
+            NonTSPseudoClass::PopoverOpen => {
+                self.element_state().contains(ElementState::POPOVER_OPEN)
+            }
             NonTSPseudoClass::Required => false,
             NonTSPseudoClass::UserInvalid => false,
             NonTSPseudoClass::UserValid => false,
