@@ -237,8 +237,13 @@ pub(crate) fn handle_dom_event(
         DomEventData::KeyPress(_) => {
             // Do nothing (no default action)
         }
-        DomEventData::KeyUp(_) => {
-            // Do nothing (no default action)
+        DomEventData::KeyUp(event) => {
+            // Space on a focused button, checkbox, radio or summary activates it on its release.
+            if event.key == keyboard_types::Key::Character(" ".into())
+                && keyboard::activates_by_key(doc, target_node_id, keyboard::Activation::Space)
+            {
+                keyboard::queue_activation_click(doc, target_node_id, event.modifiers);
+            }
         }
         DomEventData::AppleStandardKeybinding(event) => {
             handle_key_or_input_event(
