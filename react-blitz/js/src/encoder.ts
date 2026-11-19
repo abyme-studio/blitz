@@ -14,6 +14,7 @@ export const OP = {
   REMOVE: 10,
   DROP: 11,
   LISTEN: 12,
+  POPOVER: 13,
 } as const;
 
 export const NS = { html: 0, svg: 1, mathml: 2 } as const;
@@ -79,6 +80,9 @@ export class Encoder {
   }
   listen(id: number, event: string, on: boolean): void {
     this.words.push(OP.LISTEN, id, this.str(event), on ? 1 : 0);
+  }
+  popover(id: number, open: boolean): void {
+    this.words.push(OP.POPOVER, id, open ? 1 : 0);
   }
 
   /** The commit so far, and a fresh table for the next. */

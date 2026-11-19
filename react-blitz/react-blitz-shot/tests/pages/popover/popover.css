@@ -1,0 +1,9 @@
+body { margin: 0; background: #ffffff; font: 14px sans-serif; }
+/* The popover sits in a small clipped box, and a fixed cover with a z-index lies over where it opens:
+   only the top layer draws it whole and above the cover. */
+.clip { position: relative; overflow: hidden; width: 100px; height: 40px; margin: 20px; }
+#open { width: 80px; height: 30px; }
+#pop { inset: auto; left: 20px; top: 80px; width: 160px; height: 60px; margin: 0; padding: 0; border: 0; background: rgb(255, 0, 0); }
+#pop:popover-open { background: rgb(0, 128, 0); }
+#pop.hit { background: rgb(0, 0, 255); }
+.cover { position: fixed; z-index: 10; left: 0; top: 70px; width: 300px; height: 100px; background: rgb(255, 255, 255); }
