@@ -23,7 +23,7 @@ use crate::{
     layout::damage::{
         CONSTRUCT_BOX, CONSTRUCT_DESCENDENT, CONSTRUCT_FC, sort_layout_children_by_order,
     },
-    node::{NodeFlags, NodeKind, SpecialElementData, TextInputData, TextLayout},
+    node::{NodeFlags, NodeKind, Placeholder, SpecialElementData, TextInputData, TextLayout},
     qual_name, stylo_to_parley,
     traversal::{iter_children, iter_children_and_pseudos},
 };
@@ -867,6 +867,7 @@ fn collect_complex_layout_children(
 }
 
 fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multiline: bool) {
+    let placeholder = placeholder_style(doc, input_element_id);
     let node = &mut doc.nodes[input_element_id];
     let parley_style = node
         .primary_styles()
@@ -906,8 +907,65 @@ fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multi
         unreachable!();
     };
 
+    let scale = doc.viewport.scale_f64() as f32;
+    let mut font_ctx = doc.font_ctx.lock().unwrap();
     let editor = &mut text_input_data.editor;
-    editor.set_scale(doc.viewport.scale_f64() as f32);
+    style_text_editor(editor, scale, parley_style, alignment, base_direction);
+    editor.refresh_layout(&mut font_ctx, &mut doc.layout_ctx);
+
+    text_input_data.placeholder = placeholder.map(|(text, style)| {
+        let mut editor = Box::new(parley::PlainEditor::new(16.0));
+        // An `<input>`'s placeholder is one line: the HTML standard strips its line breaks.
+        let text = if is_multiline {
+            text
+        } else {
+            text.replace(['\n', '\r'], "")
+        };
+        editor.set_text(&text);
+        let alignment = stylo_to_parley::text_align(style.clone_text_align());
+        let base_direction =
+            stylo_to_parley::base_direction(style.clone_direction(), style.clone_unicode_bidi());
+        let parley_style = stylo_to_parley::style(input_element_id, &style);
+        style_text_editor(&mut editor, scale, parley_style, alignment, base_direction);
+        editor.refresh_layout(&mut font_ctx, &mut doc.layout_ctx);
+        Placeholder { editor, style }
+    });
+}
+
+/// A text field's `placeholder` attribute and its `::placeholder` style, when it has one.
+fn placeholder_style(
+    doc: &BaseDocument,
+    input_element_id: NodeId,
+) -> Option<(String, style::servo_arc::Arc<style::properties::ComputedValues>)> {
+    use style::selector_parser::PseudoElement;
+    use style::stylist::RuleInclusion;
+
+    let node = &doc.nodes[input_element_id];
+    let text = node.attr(local_name!("placeholder"))?.to_string();
+    let primary = node.primary_styles()?;
+    let read_guard = doc.guard.read();
+    let guards = StylesheetGuards::same(&read_guard);
+    let style = doc.stylist.lazily_compute_pseudo_element_style(
+        &guards,
+        BlitzNode(node),
+        &PseudoElement::Placeholder,
+        RuleInclusion::All,
+        &primary,
+        false,
+        None,
+    )?;
+    Some((text, style))
+}
+
+/// Give `editor` a field's text style, at `scale`, wrapping wherever its width is set later.
+fn style_text_editor(
+    editor: &mut parley::PlainEditor<crate::node::TextBrush>,
+    scale: f32,
+    parley_style: parley::TextStyle<'static, 'static, crate::node::TextBrush>,
+    alignment: parley::layout::Alignment,
+    base_direction: parley::BaseDirection,
+) {
+    editor.set_scale(scale);
     editor.set_width(None);
 
     let styles = editor.edit_styles();
@@ -931,8 +989,6 @@ fn create_text_editor(doc: &mut BaseDocument, input_element_id: NodeId, is_multi
     styles.insert(StyleProperty::Brush(parley_style.brush));
     editor.set_alignment(alignment);
     editor.set_base_direction(base_direction);
-
-    editor.refresh_layout(&mut doc.font_ctx.lock().unwrap(), &mut doc.layout_ctx);
 }
 
 fn create_checkbox_input(doc: &mut BaseDocument, input_element_id: NodeId) {

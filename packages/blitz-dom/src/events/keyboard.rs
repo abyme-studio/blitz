@@ -5,6 +5,7 @@ use blitz_traits::{
     events::{BlitzInputEvent, BlitzKeyEvent, DomEventData},
 };
 use keyboard_types::{Key, Modifiers, NamedKey};
+use style_dom::ElementState;
 use markup5ever::local_name;
 
 pub(super) enum KeyboardOrTextInputEvent {
@@ -114,6 +115,18 @@ impl BaseDocument {
         match event {
             GeneratedTextInputEvent::Input => {
                 let value = input_data.editor.raw_text().to_string();
+                let shown = element_data
+                    .element_state
+                    .contains(ElementState::PLACEHOLDER_SHOWN);
+                if element_data.placeholder_shown() != shown {
+                    // Typed into, or emptied: `:placeholder-shown` flips, after a snapshot.
+                    self.snapshot_node_and(node_id, ElementState::PLACEHOLDER_SHOWN, |node| {
+                        if let Some(element) = node.element_data_mut() {
+                            element.flush_placeholder_shown();
+                        }
+                        node.mark_ancestors_dirty();
+                    });
+                }
                 self.queue_ua_event(node_id, DomEventData::Input(BlitzInputEvent { value }));
                 self.shell_provider.request_redraw();
             }
