@@ -1,6 +1,9 @@
 //! `react-blitz-shot <dist> <query> <out.png> --size WxH --scale N [--scheme light|dark]
-//! [--page index.html] [--timeout SECONDS] [--boxes boxes.json] [--frames N --scroll PX
-//! [--renderer cpu|gpu|quads] [--fragments]]`
+//! [--page index.html] [--timeout SECONDS] [--boxes boxes.json] [--renderer cpu|gpu|quads]
+//! [--frames N --scroll PX [--fragments]]`
+//!
+//! `--renderer` paints with Vello's CPU renderer (the default), its GPU renderer, or the quads back
+//! end.
 //!
 //! With `--frames`: the page scrolled by a wheel of `--scroll` CSS pixels (down when positive)
 //! before each of N frames, each painted whole with no window; each frame's scene and raster ms, the
@@ -15,11 +18,11 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 use blitz_traits::shell::ColorScheme;
-use react_blitz_shot::{Raster, Shot, boxes_json, median, scroll_frames, shoot, write_png};
+use react_blitz_shot::{Raster, Shot, boxes_json, median, scroll_frames, shoot_on, write_png};
 
 const USAGE: &str = "usage: react-blitz-shot <dist> <query> <out.png> --size WxH --scale N \
 [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--boxes boxes.json] \
-[--frames N --scroll PX [--renderer cpu|gpu|quads] [--fragments]]";
+[--renderer cpu|gpu|quads] [--frames N --scroll PX [--fragments]]";
 
 fn main() -> ExitCode {
     match run() {
@@ -111,7 +114,7 @@ fn run() -> anyhow::Result<()> {
         );
         return write_png(&image, out.as_ref());
     }
-    let image = shoot(&shot)?;
+    let image = shoot_on(&shot, raster)?;
     if let Some(path) = boxes {
         std::fs::write(&path, boxes_json(&image.boxes)).with_context(|| format!("writing {}", path.display()))?;
     }
