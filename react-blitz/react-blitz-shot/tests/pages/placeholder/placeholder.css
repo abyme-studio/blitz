@@ -1,0 +1,16 @@
+body { margin: 0; background: white; }
+textarea, input {
+  display: block;
+  margin: 10px;
+  width: 260px;
+  height: 60px;
+  padding: 4px;
+  border: 4px solid rgb(0, 128, 0);
+  background: white;
+  color: black;
+  font: 40px/48px sans-serif;
+  resize: none;
+  outline: none;
+}
+textarea:placeholder-shown, input:placeholder-shown { border-color: rgb(0, 0, 255); }
+::placeholder { color: rgb(255, 0, 0); }
