@@ -104,6 +104,17 @@ pub struct TextInputData {
     /// `final_layout`. Paint draws text from the unrounded origin so that it keeps its sub-pixel
     /// position while box edges stay snapped. Set by the `writing-mode` layout pass; zero otherwise.
     pub content_box_subpixel_offset: taffy::Point<f32>,
+    /// What the field shows while it has no text: its `placeholder` attribute.
+    pub placeholder: Option<Placeholder>,
+}
+
+/// A text field's `placeholder` attribute, laid out in its `::placeholder` style. It is drawn
+/// in place of the field's text while the field is empty.
+pub struct Placeholder {
+    /// Its text laid out as the field lays out its own, at the field's width.
+    pub editor: Box<parley::PlainEditor<TextBrush>>,
+    /// The `::placeholder` style: its colour paints the text.
+    pub style: style::servo_arc::Arc<style::properties::ComputedValues>,
 }
 
 // FIXME: Implement Clone for PlainEditor
@@ -121,6 +132,44 @@ impl TextInputData {
             is_multiline,
             scroll_offset: 0.0,
             content_box_subpixel_offset: taffy::Point::ZERO,
+            placeholder: None,
+        }
+    }
+
+    /// The placeholder to draw now: the field has one and no text, nor text being composed.
+    pub fn shown_placeholder(&self) -> Option<&Placeholder> {
+        self.placeholder
+            .as_ref()
+            .filter(|_| self.editor.raw_text().is_empty() && !self.editor.is_composing())
+    }
+
+    /// Set the width the field's text wraps at, its placeholder's too, and lay both out again.
+    pub fn set_width(
+        &mut self,
+        font_ctx: &mut FontContext,
+        layout_ctx: &mut LayoutContext<TextBrush>,
+        width: Option<f32>,
+    ) {
+        self.editor.set_width(width);
+        self.editor.refresh_layout(font_ctx, layout_ctx);
+        if let Some(placeholder) = &mut self.placeholder {
+            placeholder.editor.set_width(width);
+            placeholder.editor.refresh_layout(font_ctx, layout_ctx);
+        }
+    }
+
+    /// Set the scale the field's text, and its placeholder's, are laid out at, and lay both out.
+    pub fn set_scale(
+        &mut self,
+        font_ctx: &mut FontContext,
+        layout_ctx: &mut LayoutContext<TextBrush>,
+        scale: f32,
+    ) {
+        self.editor.set_scale(scale);
+        self.editor.refresh_layout(font_ctx, layout_ctx);
+        if let Some(placeholder) = &mut self.placeholder {
+            placeholder.editor.set_scale(scale);
+            placeholder.editor.refresh_layout(font_ctx, layout_ctx);
         }
     }
 

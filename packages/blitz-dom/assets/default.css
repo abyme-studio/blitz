@@ -96,6 +96,11 @@ textarea {
     font-family: monospace;
 }
 
+/* An empty field's placeholder, as Chromium and WebKit colour it. */
+::placeholder {
+    color: darkgray;
+}
+
 /* https://html.spec.whatwg.org/multipage/rendering.html#form-controls */
 input,
 button,
