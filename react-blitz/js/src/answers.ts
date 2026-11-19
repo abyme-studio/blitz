@@ -18,4 +18,9 @@ export const ANSWERS: readonly string[] = [
   // focus, pointer, attributes
   ".focus()", "focus", "setPointerCapture", "releasePointerCapture", "hasPointerCapture", "inert",
   "aria-hidden",
+  // tree
+  "before", "after", "replaceWith",
+  // popover: the top layer, :popover-open, beforetoggle and toggle, light dismiss of auto
+  "popover", "showPopover", "hidePopover", "togglePopover", ":popover-open", "beforetoggle", "toggle",
+  "ToggleEvent",
 ];
