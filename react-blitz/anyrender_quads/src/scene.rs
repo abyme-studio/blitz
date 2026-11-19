@@ -3,12 +3,13 @@
 
 use std::sync::Arc;
 
+use anyrender::recording::Scene;
 use anyrender::{
     AntiAliasing, BoxShadowKind, Filter, MaskMode, NonUniformRoundedRect, NormalizedCoord, Paint,
     PaintRef, PaintScene, RenderContext,
 };
 use bytemuck::{Pod, Zeroable};
-use kurbo::{Affine, Insets, Shape, Stroke};
+use kurbo::{Affine, Insets, Rect, Shape, Stroke};
 use peniko::{BlendMode, Color, Compose, Fill, FontData, Mix, StyleRef};
 
 use crate::atlas::{Atlas, GlyphAsk, Page, SUBPIXELS};
@@ -140,8 +141,19 @@ enum Pushed {
     Layer { clip: Clip, layer: usize, alpha: f32 },
 }
 
+/// A layer the shaders cannot draw (a filter, a clip to a path, a turn), recorded from its push to
+/// its pop and drawn on the CPU as one atlas entry.
+struct Capture {
+    scene: Scene,
+    /// Layers open in it, its own first.
+    depth: u32,
+    /// What it can cover, in device pixels.
+    bounds: Rect,
+}
+
 pub struct QuadsScenePainter<'r> {
     pub(crate) recording: &'r mut Recording,
+    capture: Option<Capture>,
     /// The draws being added to: the frame's, or the open layer's, innermost last.
     open: Vec<Vec<Draw>>,
     pushed: Vec<Pushed>,
@@ -156,6 +168,7 @@ impl<'r> QuadsScenePainter<'r> {
         recording.atlas.begin_frame();
         Self {
             recording,
+            capture: None,
             open: vec![Vec::new()],
             pushed: Vec::new(),
             clip: Clip::default(),
@@ -212,6 +225,41 @@ impl<'r> QuadsScenePainter<'r> {
             Some(Draw::Sprites { range, page: p }) if range.end == index && *p == page => range.end += 1,
             _ => self.draws().push(Draw::Sprites { range: index..index + 1, page }),
         }
+    }
+
+    /// Draws what `record` paints on the CPU, as one atlas entry over `bounds` (device pixels).
+    fn on_cpu(&mut self, bounds: Rect, record: impl FnOnce(&mut Scene)) {
+        let mut scene = Scene::new();
+        record(&mut scene);
+        self.draw_on_cpu(&scene, bounds);
+    }
+
+    /// `scene`, in device pixels, drawn on the CPU over `bounds` cut to the clip and the device,
+    /// moved to its whole-pixel origin first so the same drawing scrolled is the same entry.
+    fn draw_on_cpu(&mut self, scene: &Scene, bounds: Rect) {
+        let (w, h) = self.size;
+        let c = self.clip.rect;
+        let area = Rect::new(c[0].max(0.0) as f64, c[1].max(0.0) as f64, c[2].min(w) as f64, c[3].min(h) as f64);
+        let r = bounds.intersect(area);
+        if r.width() <= 0.0 || r.height() <= 0.0 {
+            return;
+        }
+        let (x0, y0) = (r.x0.floor(), r.y0.floor());
+        let (pw, ph) = ((r.x1.ceil() - x0) as u32, (r.y1.ceil() - y0) as u32);
+        let mut moved = Scene::new();
+        scene.replay(&mut moved, Affine::translate((-x0, -y0)));
+        let Some(entry) = self.recording.atlas.drawn(&moved, pw, ph) else { return };
+        let clip = self.clip;
+        let bounds = [x0 as f32, y0 as f32, pw as f32, ph as f32];
+        self.add_sprite(AtlasSprite { bounds, clip, uv: entry.uv, color: [1.0; 4], params: [1.0, 0.0, 0.0, 0.0] }, entry.page);
+    }
+
+    /// Starts recording a layer for the CPU, `push` its push.
+    fn capture(&mut self, transform: Affine, clip: &impl Shape, push: impl FnOnce(&mut Scene)) {
+        let mut scene = Scene::new();
+        push(&mut scene);
+        let bounds = transform.transform_rect_bbox(clip.bounding_box());
+        self.capture = Some(Capture { scene, depth: 1, bounds });
     }
 
     /// A box under `transform`, in device pixels; none for a transform that rotates or skews.
@@ -274,6 +322,12 @@ impl<'r> QuadsScenePainter<'r> {
     }
 }
 
+/// Whether `transform` is scale and translate only, which the shaders draw.
+fn straight(transform: Affine) -> bool {
+    let [a, b, c, d, _, _] = transform.as_coeffs();
+    b == 0.0 && c == 0.0 && a > 0.0 && d > 0.0
+}
+
 /// `transform` as scale and translate, when it neither rotates nor skews.
 fn axis_aligned(transform: Affine) -> Option<(f64, f64, f64, f64)> {
     let [a, b, c, d, e, f] = transform.as_coeffs();
@@ -304,8 +358,20 @@ pub(crate) fn left_out(what: &'static str) {
 
 impl RenderContext for QuadsScenePainter<'_> {}
 
+/// Inside a layer recorded for the CPU, a call goes to its recording.
+macro_rules! captured {
+    ($self:ident, $scene:ident => $call:expr) => {
+        if let Some(capture) = $self.capture.as_mut() {
+            let $scene = &mut capture.scene;
+            $call;
+            return;
+        }
+    };
+}
+
 impl PaintScene for QuadsScenePainter<'_> {
     fn reset(&mut self) {
+        self.capture = None;
         self.recording.clear();
         self.open = vec![Vec::new()];
         self.pushed.clear();
@@ -314,7 +380,7 @@ impl PaintScene for QuadsScenePainter<'_> {
 
     fn push_layer(
         &mut self,
-        _fill: Fill,
+        fill: Fill,
         blend: impl Into<BlendMode>,
         alpha: f32,
         transform: Affine,
@@ -324,24 +390,31 @@ impl PaintScene for QuadsScenePainter<'_> {
     ) {
         let _encoding = Encoding::start();
         let blend = blend.into();
+        if let Some(capture) = self.capture.as_mut() {
+            capture.scene.push_layer(fill, blend, alpha, transform, clip, filter, backdrop_filter);
+            capture.depth += 1;
+            return;
+        }
+        // Drawn without the effect, and logged.
         if blend.mix != Mix::Normal || blend.compose != Compose::SrcOver {
             left_out("a blend other than normal");
-        }
-        if filter.is_some() {
-            left_out("a filter");
         }
         if backdrop_filter.is_some() {
             left_out("a backdrop filter");
         }
+        let boxed = Self::shape_box(clip).filter(|_| straight(transform));
+        let Some(shape) = boxed.filter(|_| filter.is_none()) else {
+            self.capture(transform, clip, |scene| scene.push_layer(fill, BlendMode::default(), alpha, transform, clip, filter, None));
+            return;
+        };
         if alpha >= 1.0 {
-            self.push_clip(transform, clip);
+            let before = self.clip;
+            self.clip_to(transform, &shape);
+            self.pushed.push(Pushed::Clip(before));
             return;
         }
         let before = self.clip;
-        match Self::shape_box(clip) {
-            Some(shape) if self.clip_to(transform, &shape) => {}
-            _ => left_out("clip to a path"),
-        }
+        self.clip_to(transform, &shape);
         let layer = self.recording.layers.len();
         self.recording.layers.push(Layer::default());
         self.open.push(Vec::new());
@@ -349,19 +422,48 @@ impl PaintScene for QuadsScenePainter<'_> {
         self.pushed.push(Pushed::Layer { clip: before, layer, alpha });
     }
 
-    fn push_clip_layer(&mut self, _fill: Fill, transform: Affine, clip: &impl Shape) {
+    fn push_clip_layer(&mut self, fill: Fill, transform: Affine, clip: &impl Shape) {
         let _encoding = Encoding::start();
-        self.push_clip(transform, clip);
+        if let Some(capture) = self.capture.as_mut() {
+            capture.scene.push_clip_layer(fill, transform, clip);
+            capture.depth += 1;
+            return;
+        }
+        match Self::shape_box(clip).filter(|_| straight(transform)) {
+            Some(shape) => {
+                let before = self.clip;
+                self.clip_to(transform, &shape);
+                self.pushed.push(Pushed::Clip(before));
+            }
+            None => self.capture(transform, clip, |scene| scene.push_clip_layer(fill, transform, clip)),
+        }
     }
 
-    fn push_mask_layer(&mut self, _fill: Fill, _mode: MaskMode, transform: Affine, clip: &impl Shape) {
+    fn push_mask_layer(&mut self, fill: Fill, mode: MaskMode, transform: Affine, clip: &impl Shape) {
         let _encoding = Encoding::start();
+        if let Some(capture) = self.capture.as_mut() {
+            capture.scene.push_mask_layer(fill, mode, transform, clip);
+            capture.depth += 1;
+            return;
+        }
+        // A mask applies to what was drawn before it, in the layer under it, which has already gone
+        // to the GPU: drawn as a clip, and logged.
         left_out("a mask");
         self.push_clip(transform, clip);
     }
 
     fn pop_layer(&mut self) {
         let _encoding = Encoding::start();
+        if let Some(capture) = self.capture.as_mut() {
+            capture.scene.pop_layer();
+            capture.depth -= 1;
+            if capture.depth == 0 {
+                let capture = self.capture.take().expect("open above");
+                frame_times::add(|t| t.cpu_layers += 1);
+                self.draw_on_cpu(&capture.scene, capture.bounds);
+            }
+            return;
+        }
         match self.pushed.pop() {
             Some(Pushed::Clip(before)) => self.clip = before,
             Some(Pushed::Layer { clip: before, layer, alpha }) => {
@@ -392,26 +494,26 @@ impl PaintScene for QuadsScenePainter<'_> {
         style: &Stroke,
         transform: Affine,
         paint: impl Into<PaintRef<'a>>,
-        _brush_transform: Option<Affine>,
+        brush_transform: Option<Affine>,
         shape: &impl Shape,
-        _anti_aliasing: AntiAliasing,
+        anti_aliasing: AntiAliasing,
     ) {
         let _encoding = Encoding::start();
-        let Paint::Solid(color) = paint.into() else {
-            left_out("a stroke not of one colour");
+        let paint = paint.into();
+        captured!(self, scene => scene.stroke(style, transform, paint, brush_transform, shape, anti_aliasing));
+        let boxed = Self::shape_box(shape).filter(|_| straight(transform) && style.dash_pattern.is_empty());
+        let (Paint::Solid(color), Some(boxed)) = (&paint, boxed) else {
+            // A stroke reaches half its width out, more at a mitre: room for both.
+            let s = transform.as_coeffs().iter().take(4).fold(0.0f64, |m, c| m.max(c.abs()));
+            let reach = style.width * s * style.miter_limit.max(1.0) + 2.0;
+            let bounds = transform.transform_rect_bbox(shape.bounding_box()).inflate(reach, reach);
+            self.on_cpu(bounds, |scene| scene.stroke(style, transform, paint, brush_transform, shape, anti_aliasing));
             return;
         };
-        if !style.dash_pattern.is_empty() {
-            left_out("a dashed stroke");
-            return;
-        }
-        let Some(shape) = Self::shape_box(shape) else {
-            left_out("a stroke of a path");
-            return;
-        };
+        let color = *color;
         // A stroke straddles the edge: a border of its width around the shape grown by half.
         let half = style.width / 2.0;
-        let outer = shape.spread(half);
+        let outer = boxed.spread(half);
         let Some((bounds, radii)) = self.device_box(transform, &outer) else { return };
         let (sx, sy, _, _) = axis_aligned(transform).unwrap_or((1.0, 1.0, 0.0, 0.0));
         let (wx, wy) = ((style.width * sx) as f32, (style.width * sy) as f32);
@@ -421,29 +523,27 @@ impl PaintScene for QuadsScenePainter<'_> {
 
     fn fill<'a>(
         &mut self,
-        _style: Fill,
+        style: Fill,
         transform: Affine,
         paint: impl Into<PaintRef<'a>>,
-        _brush_transform: Option<Affine>,
+        brush_transform: Option<Affine>,
         shape: &impl Shape,
-        _anti_aliasing: AntiAliasing,
+        anti_aliasing: AntiAliasing,
     ) {
         let _encoding = Encoding::start();
         let paint = paint.into();
-        let Paint::Solid(color) = paint else {
-            left_out(match paint {
-                Paint::Gradient(_) => "a gradient",
-                Paint::Image(_) | Paint::Resource(_) => "an image",
-                Paint::Pattern(_) => "a pattern",
-                _ => "a custom paint",
-            });
-            return;
-        };
-        let Some(shape) = Self::shape_box(shape) else {
-            left_out("a fill of a path");
-            return;
-        };
-        self.fill_box(transform, color, &shape);
+        captured!(self, scene => scene.fill(style, transform, paint, brush_transform, shape, anti_aliasing));
+        match (&paint, Self::shape_box(shape).filter(|_| straight(transform))) {
+            (Paint::Solid(color), Some(boxed)) => {
+                let color = *color;
+                self.fill_box(transform, color, &boxed);
+            }
+            (Paint::Custom(_), _) => left_out("a custom paint"),
+            _ => {
+                let bounds = transform.transform_rect_bbox(shape.bounding_box());
+                self.on_cpu(bounds, |scene| scene.fill(style, transform, paint, brush_transform, shape, anti_aliasing));
+            }
+        }
     }
 
     fn draw_glyphs<'a, 's: 'a>(
@@ -462,16 +562,19 @@ impl PaintScene for QuadsScenePainter<'_> {
         _anti_aliasing: AntiAliasing,
     ) {
         let _encoding = Encoding::start();
+        let style = style.into();
+        let paint = paint.into();
+        captured!(self, scene => scene.draw_glyphs(font, font_size, hint, normalized_coords, embolden, style, paint, brush_alpha, transform, glyph_transform, glyphs, _anti_aliasing));
         let count = glyphs.clone().count() as u32;
         frame_times::add(|t| {
             t.glyph_runs += 1;
             t.glyphs += count;
         });
-        if !matches!(style.into(), StyleRef::Fill(_)) {
+        if !matches!(style, StyleRef::Fill(_)) {
             left_out("stroked glyphs");
             return;
         }
-        let Paint::Solid(color) = paint.into() else {
+        let Paint::Solid(color) = paint else {
             left_out("glyphs not of one colour");
             return;
         };
@@ -523,6 +626,7 @@ impl PaintScene for QuadsScenePainter<'_> {
         kind: BoxShadowKind,
     ) {
         let _encoding = Encoding::start();
+        captured!(self, scene => scene.draw_box_shadow(transform, box_shape, offset, spread, std_dev, color, kind));
         let geometry = anyrender::BoxShadowGeometry::new(box_shape, offset, spread, std_dev, kind);
         let Some((shape, shape_radii)) = self.device_box(transform, &geometry.shadow) else { return };
         let Some((cast, cast_radii)) = self.device_box(transform, box_shape) else { return };
@@ -546,6 +650,12 @@ impl PaintScene for QuadsScenePainter<'_> {
 
     fn fill_box(&mut self, transform: Affine, color: Color, shape: &NonUniformRoundedRect) {
         let _encoding = Encoding::start();
+        captured!(self, scene => scene.fill_box(transform, color, shape));
+        if !straight(transform) {
+            let bounds = transform.transform_rect_bbox(shape.rect);
+            self.on_cpu(bounds, |scene| scene.fill_box(transform, color, shape));
+            return;
+        }
         let Some((bounds, radii)) = self.device_box(transform, shape) else { return };
         let clip = self.clip;
         self.add_quad(Quad { bounds, clip, background: rgba(color), border_color: [0.0; 4], radii, borders: [0.0; 4] });
@@ -557,11 +667,16 @@ impl PaintScene for QuadsScenePainter<'_> {
         color: Color,
         border_box: &NonUniformRoundedRect,
         widths: Insets,
-        _paths: impl FnOnce(&mut Self),
+        paths: impl FnOnce(&mut Self),
     ) where
         Self: Sized,
     {
         let _encoding = Encoding::start();
+        // Inside a recording, or turned: its paths, which go where any fill goes.
+        if self.capture.is_some() || !straight(transform) {
+            paths(self);
+            return;
+        }
         let Some((bounds, radii)) = self.device_box(transform, border_box) else { return };
         let (sx, sy, _, _) = axis_aligned(transform).unwrap_or((1.0, 1.0, 0.0, 0.0));
         let borders = [(widths.y0 * sy) as f32, (widths.x1 * sx) as f32, (widths.y1 * sy) as f32, (widths.x0 * sx) as f32];
@@ -571,15 +686,23 @@ impl PaintScene for QuadsScenePainter<'_> {
 
     fn push_box_clip(&mut self, transform: Affine, shape: &NonUniformRoundedRect) {
         let _encoding = Encoding::start();
-        let before = self.clip;
-        if !self.clip_to(transform, shape) {
-            left_out("clip to a path");
+        if self.capture.is_some() || !straight(transform) {
+            self.push_clip_layer(Fill::NonZero, transform, &shape.to_path(0.1));
+            return;
         }
+        let before = self.clip;
+        self.clip_to(transform, shape);
         self.pushed.push(Pushed::Clip(before));
     }
 
     fn draw_image(&mut self, image: peniko::ImageBrushRef, transform: Affine) {
         let _encoding = Encoding::start();
+        captured!(self, scene => scene.draw_image(image, transform));
+        if !straight(transform) {
+            let bounds = transform.transform_rect_bbox(Rect::new(0.0, 0.0, image.image.width as f64, image.image.height as f64));
+            self.on_cpu(bounds, |scene| scene.draw_image(image, transform));
+            return;
+        }
         let Some((sx, sy, tx, ty)) = axis_aligned(transform) else { return };
         let Some(entry) = self.recording.atlas.image(image.image) else { return };
         let bounds = [tx as f32, ty as f32, (image.image.width as f64 * sx) as f32, (image.image.height as f64 * sy) as f32];
