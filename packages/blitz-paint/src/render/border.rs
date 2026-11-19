@@ -147,7 +147,42 @@ fn sample_points_along_path(path: &BezPath, spacing: f64, count: usize) -> Vec<P
 
 impl ElementCx<'_, '_> {
     /// Draw all borders for a node
-    pub(crate) fn draw_border(&self, scene: &mut impl PaintScene) {
+    pub(crate) fn draw_border<S: PaintScene>(&self, scene: &mut S) {
+        // A solid border of one colour on every side is a box's border: the back end may draw it
+        // as one, and otherwise draws the paths below.
+        let style = &*self.style;
+        let border = style.get_border();
+        let current_color = style.clone_color();
+        let solid = |s: BorderStyle| matches!(s, BorderStyle::Solid | BorderStyle::None | BorderStyle::Hidden);
+        let color = border.border_top_color.resolve_to_absolute(&current_color).as_srgb_color();
+        let one_color = [
+            &border.border_right_color,
+            &border.border_bottom_color,
+            &border.border_left_color,
+        ]
+        .iter()
+        .all(|c| c.resolve_to_absolute(&current_color).as_srgb_color() == color);
+        if solid(border.border_top_style)
+            && solid(border.border_right_style)
+            && solid(border.border_bottom_style)
+            && solid(border.border_left_style)
+            && one_color
+            && color.components[3] > 0.0
+        {
+            let widths = self.frame.border_width;
+            scene.draw_border(
+                self.transform,
+                color,
+                &self.frame.border_box_shape(),
+                widths,
+                |scene| self.draw_border_paths(scene),
+            );
+        } else {
+            self.draw_border_paths(scene);
+        }
+    }
+
+    fn draw_border_paths(&self, scene: &mut impl PaintScene) {
         let style = &*self.style;
         let border = style.get_border();
         let current_color = style.clone_color();
