@@ -142,11 +142,13 @@ pub struct ScrollFrame {
     pub glyph_outlines: u32,
     /// Inline layouts (Parley's) built since the frame before.
     pub text_layouts: u32,
-    /// On the quads back end: instances drawn (quads and shadows), its draw calls, and the
+    /// On the quads back end: instances drawn (quads, shadows, sprites), its draw calls, and the
     /// painter calls it left out. 0 on Vello.
     pub instances: u32,
     pub draws: u32,
     pub left_out: u32,
+    /// On the quads back end: glyphs rasterized into its atlas this frame.
+    pub glyphs_added: u32,
 }
 
 /// What paints an offscreen frame: Vello's CPU renderer, its GPU one, or the quads back end.
@@ -271,6 +273,7 @@ impl<R: ImageRenderer> Offscreen<R> {
             instances: quads.quads + quads.shadows,
             draws: quads.draws,
             left_out: quads.left_out.values().sum(),
+            glyphs_added: quads.glyphs_added,
         }
     }
 

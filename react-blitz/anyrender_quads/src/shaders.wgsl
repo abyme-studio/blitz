@@ -43,6 +43,14 @@ struct Shadow {
     params: vec4<f32>,
 }
 
+struct AtlasSprite {
+    bounds: vec4<f32>,
+    clip: Clip,
+    uv: vec4<f32>,
+    color: vec4<f32>,
+    params: vec4<f32>,
+}
+
 struct Sprite {
     bounds: vec4<f32>,
     clip: Clip,
@@ -54,7 +62,13 @@ struct Sprite {
 @group(0) @binding(1) var<storage, read> quads: array<Quad>;
 @group(0) @binding(2) var<storage, read> shadows: array<Shadow>;
 @group(0) @binding(3) var<storage, read> sprites: array<Sprite>;
+@group(0) @binding(4) var<storage, read> atlas_sprites: array<AtlasSprite>;
 @group(1) @binding(0) var layer: texture_2d<f32>;
+// The atlas sprites' group: the coverage page, the colour page (or an image's own texture), and
+// a linear sampler. Bindings 1 to 3, so they never meet the layer's binding 0.
+@group(1) @binding(1) var atlas_mono: texture_2d<f32>;
+@group(1) @binding(2) var atlas_color: texture_2d<f32>;
+@group(1) @binding(3) var atlas_sampler: sampler;
 
 const M_PI_F: f32 = 3.1415926;
 
@@ -324,4 +338,42 @@ fn fs_sprite(input: SpriteVarying) -> @location(0) vec4<f32> {
     // The layer's texture is premultiplied, at the device's size: one texel per pixel.
     let texel = textureLoad(layer, vec2<i32>(input.position.xy), 0);
     return texel * (sprite.params.x * clip);
+}
+
+// --- atlas sprites: glyphs and images --- //
+
+struct AtlasSpriteVarying {
+    @builtin(position) position: vec4<f32>,
+    @location(0) @interpolate(flat) sprite_id: u32,
+    @location(1) texel: vec2<f32>,
+}
+
+@vertex
+fn vs_atlas_sprite(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) instance_id: u32) -> AtlasSpriteVarying {
+    let sprite = atlas_sprites[instance_id];
+    let unit = unit_vertex(vertex_id);
+    var out = AtlasSpriteVarying();
+    out.position = to_device_position(unit, sprite.bounds);
+    out.sprite_id = instance_id;
+    out.texel = sprite.uv.xy + unit * sprite.uv.zw;
+    return out;
+}
+
+@fragment
+fn fs_atlas_sprite(input: AtlasSpriteVarying) -> @location(0) vec4<f32> {
+    let sprite = atlas_sprites[input.sprite_id];
+    let clip = clip_coverage(input.position.xy, sprite.clip);
+    if (clip == 0.0) {
+        discard;
+    }
+    if (sprite.params.x == 0.0) {
+        // A plain glyph: coverage, tinted.
+        let size = vec2<f32>(textureDimensions(atlas_mono));
+        let coverage = textureSampleLevel(atlas_mono, atlas_sampler, input.texel / size, 0.0).r;
+        return premultiplied(sprite.color, coverage * clip);
+    }
+    // A colour glyph or an image: premultiplied texels at the sprite's alpha.
+    let size = vec2<f32>(textureDimensions(atlas_color));
+    let texel = textureSampleLevel(atlas_color, atlas_sampler, input.texel / size, 0.0);
+    return texel * (sprite.color.a * clip);
 }
