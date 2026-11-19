@@ -297,42 +297,6 @@ pub trait PaintScene: RenderContext {
 
     // --- Provided methods
 
-    /// Fill a box (a rect with CSS corner radii) with one colour: a solid background. The default
-    /// fills it as a shape, so a back end that draws boxes natively may draw it as a box instead.
-    fn fill_box(&mut self, transform: Affine, color: Color, shape: &NonUniformRoundedRect) {
-        self.fill(
-            Fill::NonZero,
-            transform,
-            color,
-            None,
-            shape,
-            AntiAliasing::Enabled,
-        );
-    }
-
-    /// Draw a solid border of one colour on every side: `border_box` its outer edge, `widths` each
-    /// side's width, which may differ and may be 0. `paths` draws it as paths, as a back end that
-    /// has no box primitive does: the default calls it, so its pixels are the paths'.
-    fn draw_border(
-        &mut self,
-        transform: Affine,
-        color: Color,
-        border_box: &NonUniformRoundedRect,
-        widths: kurbo::Insets,
-        paths: impl FnOnce(&mut Self),
-    ) where
-        Self: Sized,
-    {
-        let _ = (transform, color, border_box, widths);
-        paths(self);
-    }
-
-    /// Push a clip to a box: an overflow clip. The default pushes it as a clip layer of its shape.
-    /// Popped by [`Self::pop_layer`].
-    fn push_box_clip(&mut self, transform: Affine, shape: &NonUniformRoundedRect) {
-        self.push_clip_layer(Fill::NonZero, transform, shape);
-    }
-
     /// Draw what follows into a fragment the back end keeps in its own form, until
     /// [`Self::end_fragment`], and not into the scene. False, the default, when the back end
     /// keeps none: the caller then draws as it always did. Fragments nest.
