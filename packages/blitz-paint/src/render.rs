@@ -254,15 +254,22 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
         // scrollports narrow this rectangle further for their descendants.
         let viewport_clip_rect = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
 
-        self.render_element(
-            scene,
-            root_id,
-            Affine::translate(Vec2 {
-                x: self.initial_x - (viewport_scroll.x * self.scale),
-                y: self.initial_y - (viewport_scroll.y * self.scale),
-            }),
-            viewport_clip_rect,
-        );
+        let root_transform = Affine::translate(Vec2 {
+            x: self.initial_x - (viewport_scroll.x * self.scale),
+            y: self.initial_y - (viewport_scroll.y * self.scale),
+        });
+        self.render_element(scene, root_id, root_transform, viewport_clip_rect);
+
+        // The top layer, bottom first, above the root and outside every clip of the tree.
+        let dom = self.dom.as_ref();
+        for id in dom.top_layer() {
+            let at = blitz_dom::hoisted_child_position(dom.tree(), root_id, id);
+            let transform = root_transform.pre_translate(Vec2 {
+                x: at.x as f64 * self.scale,
+                y: at.y as f64 * self.scale,
+            });
+            self.render_node(scene, id, transform, viewport_clip_rect);
+        }
 
         // Render debug overlay
         if self.dom.devtools().highlight_hover {
@@ -1238,6 +1245,9 @@ impl ElementCx<'_, '_> {
 
         if let Some(hoisted) = &self.node.stacking_context {
             for hoisted_child in hoisted.neg_z_hoisted_children() {
+                if self.node.tree()[hoisted_child.node_id].is_in_top_layer() {
+                    continue;
+                }
                 let position = hoisted_child.position(self.node.tree(), self.node.id);
                 let pos = kurbo::Vec2 {
                     x: position.x as f64 * self.scale,
@@ -1255,6 +1265,11 @@ impl ElementCx<'_, '_> {
         // Regular children
         if let Some(children) = &*self.node.paint_children.borrow() {
             for child_id in children {
+                // A box in the top layer is painted by `paint_scene`, above everything.
+                if self.context.dom.as_ref().tree()[*child_id].is_in_top_layer() {
+                    continue;
+                }
+
                 // Fixed-position children of the root element are positioned against
                 // the viewport and do not scroll with it, so cancel out the viewport
                 // scroll (applied in `paint_scene`). A fixed box contained by a
@@ -1281,6 +1296,9 @@ impl ElementCx<'_, '_> {
         // Positive z_index hoisted nodes
         if let Some(hoisted) = &self.node.stacking_context {
             for hoisted_child in hoisted.pos_z_hoisted_children() {
+                if self.node.tree()[hoisted_child.node_id].is_in_top_layer() {
+                    continue;
+                }
                 let position = hoisted_child.position(self.node.tree(), self.node.id);
                 let pos = kurbo::Vec2 {
                     x: position.x as f64 * self.scale,

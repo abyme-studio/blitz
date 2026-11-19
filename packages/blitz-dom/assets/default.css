@@ -45,6 +45,20 @@ svg|svg:not(:root) {
     display: none;
 }
 
+/* https://html.spec.whatwg.org/#flow-content-3: an open popover is drawn in the top layer */
+[popover] {
+    position: fixed;
+    inset: 0;
+    width: fit-content;
+    height: fit-content;
+    margin: auto;
+    border: solid;
+    padding: 0.25em;
+    overflow: auto;
+    color: CanvasText;
+    background-color: Canvas;
+}
+
 /* https://html.spec.whatwg.org/#phrasing-content-3: only links are styled */
 a[href] {
     color: rgb(0, 0, 238);
