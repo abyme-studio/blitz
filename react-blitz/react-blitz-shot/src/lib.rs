@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, bail};
 use anyrender::{AntiAliasing, ImageRenderer, PaintScene as _};
 use anyrender_vello::VelloImageRenderer;
+use anyrender_quads::QuadsImageRenderer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use blitz_dom::util::Color;
 use blitz_dom::{Document as _, DocumentConfig};
@@ -141,13 +142,30 @@ pub struct ScrollFrame {
     pub glyph_outlines: u32,
     /// Inline layouts (Parley's) built since the frame before.
     pub text_layouts: u32,
+    /// On the quads back end: instances drawn (quads and shadows), its draw calls, and the
+    /// painter calls it left out. 0 on Vello.
+    pub instances: u32,
+    pub draws: u32,
+    pub left_out: u32,
+}
+
+/// What paints an offscreen frame: Vello's CPU renderer, its GPU one, or the quads back end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Raster {
+    Cpu,
+    Gpu,
+    Quads,
 }
 
 /// The page scrolled by a wheel of `scroll` CSS pixels (down when positive) at its middle before
 /// each of `frames` frames, each painted whole with no window by one renderer kept between them:
-/// Vello's on the GPU, or its CPU one. Answers each frame's times and the last frame.
-pub fn scroll_frames(shot: &Shot, frames: usize, scroll: f64, gpu: bool) -> anyhow::Result<(Vec<ScrollFrame>, Image)> {
-    if gpu { scroll_with::<VelloImageRenderer>(shot, frames, scroll) } else { scroll_with::<VelloCpuImageRenderer>(shot, frames, scroll) }
+/// Vello's on the GPU or the CPU, or the quads back end. Answers each frame's times and the last frame.
+pub fn scroll_frames(shot: &Shot, frames: usize, scroll: f64, raster: Raster) -> anyhow::Result<(Vec<ScrollFrame>, Image)> {
+    match raster {
+        Raster::Cpu => scroll_with::<VelloCpuImageRenderer>(shot, frames, scroll),
+        Raster::Gpu => scroll_with::<VelloImageRenderer>(shot, frames, scroll),
+        Raster::Quads => scroll_with::<QuadsImageRenderer>(shot, frames, scroll),
+    }
 }
 
 fn scroll_with<R: ImageRenderer>(shot: &Shot, frames: usize, scroll: f64) -> anyhow::Result<(Vec<ScrollFrame>, Image)> {
@@ -243,12 +261,16 @@ impl<R: ImageRenderer> Offscreen<R> {
             &mut self.rgba,
         );
         self.renderer.reset();
+        let quads = anyrender_quads::take_frame_times();
         ScrollFrame {
             scene: scene_ms,
             raster: start.elapsed().as_secs_f64() * 1000.0 - scene_ms,
             fragments: blitz_paint::take_fragment_stats(),
             glyph_outlines: anyrender_vello::take_frame_times().glyph_outlines,
             text_layouts,
+            instances: quads.quads + quads.shadows,
+            draws: quads.draws,
+            left_out: quads.left_out.values().sum(),
         }
     }
 
