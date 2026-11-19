@@ -18,3 +18,4 @@ pollster = "1.0"
 vello_cpu = { version = "0.4.0", default-features = false, features = ["std", "text", "u8_pipeline"] }
 glifo = "0.5.0"
 etagere = "0.2"
+anyrender_vello_cpu = "0.19.0"
