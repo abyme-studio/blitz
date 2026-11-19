@@ -529,9 +529,8 @@ impl BaseDocument {
                     node.insert_damage(ALL_DAMAGE);
                 }
             } else if let Some(input) = element.text_input_data_mut() {
-                input.editor.set_scale(scale);
                 let mut font_ctx = font_ctx.lock().unwrap();
-                input.editor.refresh_layout(&mut font_ctx, layout_ctx);
+                input.set_scale(&mut font_ctx, layout_ctx, scale);
                 node.insert_damage(ONLY_RELAYOUT);
             }
         }

@@ -562,6 +562,30 @@ impl ElementData {
         self.element_state.set(ElementState::OPEN, is_open);
     }
 
+    /// Set `:placeholder-shown` from [`Self::placeholder_shown`].
+    pub fn flush_placeholder_shown(&mut self) {
+        let shown = self.placeholder_shown();
+        self.element_state.set(ElementState::PLACEHOLDER_SHOWN, shown);
+    }
+
+    /// `:placeholder-shown`: a text field with a `placeholder` attribute and no text. Before its
+    /// editor exists, its text is its `value` attribute.
+    pub fn placeholder_shown(&self) -> bool {
+        let is_text_field = match self.name.local {
+            local_name!("textarea") => true,
+            local_name!("input") => matches!(
+                self.attr(local_name!("type")),
+                None | Some("text" | "search" | "url" | "tel" | "email" | "password" | "number")
+            ),
+            _ => false,
+        };
+        let empty = match self.text_input_data() {
+            Some(input) => input.editor.raw_text().is_empty(),
+            None => self.attr(local_name!("value")).is_none_or(str::is_empty),
+        };
+        is_text_field && self.has_attr(local_name!("placeholder")) && empty
+    }
+
     pub fn image_data(&self) -> Option<&ImageData> {
         match &self.special_data {
             SpecialElementData::Image(data) => Some(&**data),

@@ -387,6 +387,10 @@ impl DocumentMutator<'_> {
             element.flush_open_state();
         }
 
+        if name.local == local_name!("placeholder") {
+            element.flush_placeholder_shown();
+        }
+
         let tag = &element.name.local;
         let attr = &name.local;
 
@@ -407,6 +411,7 @@ impl DocumentMutator<'_> {
                     value,
                 );
             }
+            element.flush_placeholder_shown();
             return;
         }
 
@@ -544,6 +549,10 @@ impl DocumentMutator<'_> {
                     "",
                 );
             }
+        }
+
+        if name.local == local_name!("value") || name.local == local_name!("placeholder") {
+            element.flush_placeholder_shown();
         }
 
         let tag = &element.name.local;
@@ -722,6 +731,7 @@ impl DocumentMutator<'_> {
                 *attr,
                 local_name!("type")
                     | local_name!("value")
+                    | local_name!("placeholder")
                     | local_name!("checked")
                     | local_name!("width")
                     | local_name!("height")
@@ -1242,6 +1252,7 @@ impl<'doc> DocumentMutator<'doc> {
                     .eager_op_queue
                     .push(SpecialOp::LoadCustomPaintSource(node_id)),
                 "button" | "fieldset" | "input" | "select" | "textarea" | "object" | "output" => {
+                    element.flush_placeholder_shown();
                     self.eager_op_queue
                         .push(SpecialOp::ProcessButtonInput(node_id));
                     self.form_nodes.insert(node_id);
