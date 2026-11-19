@@ -18,6 +18,15 @@ pub(crate) fn handle_key_or_input_event(
     event: KeyboardOrTextInputEvent,
 ) {
     if let KeyboardOrTextInputEvent::KeyPress(event) = &event {
+        // Enter on a focused button or link activates it, as a click does.
+        if event.state.is_pressed()
+            && !event.is_composing
+            && event.key == Key::Named(NamedKey::Enter)
+            && activates_by_key(doc, target, Activation::Enter)
+        {
+            queue_activation_click(doc, target, event.modifiers);
+            return;
+        }
         if event.key == Key::Named(NamedKey::Tab) {
             let backwards = event.modifiers.contains(Modifiers::SHIFT);
             if backwards {
@@ -155,4 +164,59 @@ fn implicit_form_submission(doc: &BaseDocument, text_target: NodeId) {
     }
 
     doc.submit_form(*form_owner_id, *form_owner_id);
+}
+
+/// Which key activates an element: Enter on its keydown, or Space on its keyup.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Activation {
+    Enter,
+    Space,
+}
+
+/// Whether the focused `target` is activated by `key`, as a browser's buttons, links and summaries
+/// are: Enter for a button, a link or a summary; Space for a button, a checkbox, a radio or a summary.
+/// <https://html.spec.whatwg.org/multipage/interaction.html#activation>
+pub(crate) fn activates_by_key(doc: &BaseDocument, target: NodeId, key: Activation) -> bool {
+    if doc.focus_node_id != Some(target) {
+        return false;
+    }
+    let Some(element) = doc.get_node(target).and_then(|n| n.element_data()) else {
+        return false;
+    };
+    if element.has_attr(local_name!("disabled")) {
+        return false;
+    }
+    let input_type = element.attr(local_name!("type")).map(|t| t.to_ascii_lowercase());
+    match element.name.local {
+        local_name!("button") | local_name!("summary") => true,
+        local_name!("a") => key == Activation::Enter && element.has_attr(local_name!("href")),
+        local_name!("input") => match input_type.as_deref() {
+            Some("button" | "submit" | "reset" | "image") => true,
+            Some("checkbox" | "radio") => key == Activation::Space,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Queue the click a key's activation fires: a synthetic one, at no pointer position.
+pub(crate) fn queue_activation_click(doc: &mut BaseDocument, target: NodeId, mods: Modifiers) {
+    use blitz_traits::events::{
+        BlitzPointerEvent, BlitzPointerId, MouseEventButton, PointerCoords, PointerDetails,
+    };
+    let coords = PointerCoords { page_x: 0.0, page_y: 0.0, screen_x: 0.0, screen_y: 0.0, client_x: 0.0, client_y: 0.0 };
+    doc.queue_ua_event(
+        target,
+        DomEventData::Click(BlitzPointerEvent {
+            id: BlitzPointerId::Mouse,
+            is_primary: true,
+            coords,
+            button: MouseEventButton::Main,
+            buttons: Default::default(),
+            mods,
+            details: PointerDetails::default(),
+            element: Default::default(),
+            active_pointers: Default::default(),
+        }),
+    );
 }
