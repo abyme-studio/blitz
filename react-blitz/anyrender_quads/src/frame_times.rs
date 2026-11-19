@@ -28,6 +28,13 @@ pub struct FrameTimes {
     /// Instanced draw calls and render passes.
     pub draws: u32,
     pub passes: u32,
+    /// Glyphs and images rasterized or converted into the atlas, new this frame.
+    pub glyphs_added: u32,
+    pub images_added: u32,
+    /// Glyph and image sprites drawn.
+    pub sprites: u32,
+    /// Pages emptied because one filled.
+    pub atlas_resets: u32,
     /// What was not drawn, by kind, and how often.
     pub left_out: BTreeMap<&'static str, u32>,
 }
