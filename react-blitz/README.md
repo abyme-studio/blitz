@@ -4,6 +4,9 @@ React drawn by Blitz. This folder is everything the fork `abyme-studio/blitz` ad
 Blitz, as its own Cargo workspace: upstream's root workspace never lists these crates, so a rebase
 on upstream touches none of them.
 
+- `anyrender_quads/`: a drawing back end of instanced quads on wgpu, as Zed's GPUI draws (its shaders
+  ported, Apache-2.0), behind `--renderer quads`; Vello stays the default. What it cannot draw yet
+  is left out and counted.
 - `blitz-commit/`: the wire format. It decodes one React commit (ops and a string table) and applies
   it to a `BaseDocument` through one `DocumentMutator`. It is the one owner of the format.
 - `js/`: the npm package `react-blitz`: the React host config, the encoder, event dispatch, and the

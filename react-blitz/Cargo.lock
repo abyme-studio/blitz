@@ -123,6 +123,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyrender_quads"
+version = "0.1.0"
+dependencies = [
+ "anyrender",
+ "bytemuck",
+ "kurbo",
+ "peniko",
+ "pollster",
+ "wgpu",
+ "wgpu_context",
+]
+
+[[package]]
 name = "anyrender_svg"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3568,6 +3581,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "anyrender",
+ "anyrender_quads",
  "anyrender_vello",
  "anyrender_vello_cpu",
  "anyrender_vello_gpu",
