@@ -708,16 +708,12 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                             &cx.frame.padding_box_shape()
                         };
 
-                        // Clip layer if box requires clipping. Opacity set to 1.0
-                        self.layer_manager.maybe_with_layer(
+                        // Clip to the box if it clips its overflow.
+                        self.layer_manager.maybe_with_box_clip(
                             scene,
                             should_clip,
-                            BlendMode::default(),
-                            1.0, // opacity
                             cx.transform,
                             clip,
-                            None,
-                            None,
                             |scene| {
                                 // Now that background has been drawn, offset pos and cx in order to draw our contents scrolled
                                 let content_position = Point {
