@@ -128,9 +128,12 @@ version = "0.1.0"
 dependencies = [
  "anyrender",
  "bytemuck",
+ "etagere",
+ "glifo",
  "kurbo",
  "peniko",
  "pollster",
+ "vello_cpu",
  "wgpu",
  "wgpu_context",
 ]
@@ -1516,6 +1519,16 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "etagere"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc89bf99e5dc15954a60f707c1e09d7540e5cd9af85fa75caa0b510bc08c5342"
+dependencies = [
+ "euclid",
+ "svg_fmt",
 ]
 
 [[package]]

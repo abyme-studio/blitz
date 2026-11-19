@@ -3,9 +3,11 @@
 //! are one draw, and a frame is one render pass, plus one per opacity layer. Unlike GPUI it keeps
 //! the order blitz-paint draws in, which is CSS paint order.
 //!
-//! What its shaders cannot draw yet (glyphs, images, gradients, paths, filters, masks) is left out
-//! and counted by kind in [`take_frame_times`].
+//! Glyphs and images are sprites from an atlas, rasterized once by `vello_cpu`. What its shaders
+//! cannot draw yet (gradients, paths, filters, masks) is left out and counted by kind in
+//! [`take_frame_times`].
 
+mod atlas;
 mod frame_times;
 mod gpu;
 mod image_renderer;

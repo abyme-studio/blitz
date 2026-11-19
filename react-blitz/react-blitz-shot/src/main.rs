@@ -100,7 +100,7 @@ fn run() -> anyhow::Result<()> {
                 t.text_layouts
             );
             if raster == Raster::Quads {
-                println!("  quads: instances {}, draws {}, left out {}", t.instances, t.draws, t.left_out);
+                println!("  quads: instances {}, draws {}, left out {}, glyphs added {}", t.instances, t.draws, t.left_out, t.glyphs_added);
             }
         }
         println!(
