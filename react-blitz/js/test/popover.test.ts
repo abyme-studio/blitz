@@ -128,3 +128,30 @@ test("an open popover taken out of the tree closes, with no events", async () =>
   await tick();
   expect(events).toEqual([]);
 });
+
+test("a click on the trigger that showed an open menu does not light-dismiss it; a click outside does", () => {
+  const handlers: Record<string, (e: any) => void> = {};
+  const g = globalThis as any;
+  const had = g.document;
+  // A stand-in document: an element that keeps the listeners light dismiss adds.
+  const doc = el();
+  vi.spyOn(doc, "addEventListener").mockImplementation(((type: string, fn: (e: any) => void) => (handlers[type] = fn)) as any);
+  g.document = doc;
+  try {
+    const trigger = el();
+    const outside = el();
+    const menu = el("auto");
+    body.append(trigger, outside, menu);
+    menu.showPopover({ source: trigger });
+    const click = (target: BlitzElement) => {
+      handlers.pointerdown!({ target });
+      handlers.pointerup!({ target });
+    };
+    click(trigger);
+    expect(shown).toEqual([[menu.rbId, true]]);
+    click(outside);
+    expect(shown).toEqual([[menu.rbId, true], [menu.rbId, false]]);
+  } finally {
+    g.document = had;
+  }
+});
