@@ -77,9 +77,19 @@ impl Shot {
 const FRAME: f64 = 1.0 / 60.0;
 
 pub fn shoot(shot: &Shot) -> anyhow::Result<Image> {
+    shoot_on(shot, Raster::Cpu)
+}
+
+/// [`shoot`], painted by `raster`: Vello's CPU or GPU renderer, or the quads back end.
+pub fn shoot_on(shot: &Shot, raster: Raster) -> anyhow::Result<Image> {
     let (mut doc, _) = open(shot)?;
     let boxes = laid_boxes(&*doc.inner());
-    let (width, height, rgba) = paint(&mut doc.inner_mut(), shot.width, shot.height, shot.scale);
+    let mut inner = doc.inner_mut();
+    let (width, height, rgba, _, _) = match raster {
+        Raster::Cpu => paint_on::<VelloCpuImageRenderer>(&mut inner, shot.width, shot.height, shot.scale),
+        Raster::Gpu => paint_on::<VelloImageRenderer>(&mut inner, shot.width, shot.height, shot.scale),
+        Raster::Quads => paint_on::<QuadsImageRenderer>(&mut inner, shot.width, shot.height, shot.scale),
+    };
     Ok(Image { width, height, rgba, boxes })
 }
 
@@ -301,12 +311,17 @@ pub fn paint(doc: &mut blitz_dom::BaseDocument, width: u32, height: u32, scale: 
 
 /// [`paint`], and its two parts in ms: building the scene, then turning it into pixels.
 pub fn paint_timed(doc: &mut blitz_dom::BaseDocument, width: u32, height: u32, scale: f32) -> (u32, u32, Vec<u8>, f64, f64) {
+    paint_on::<VelloCpuImageRenderer>(doc, width, height, scale)
+}
+
+/// [`paint_timed`] on renderer `R`.
+fn paint_on<R: ImageRenderer>(doc: &mut blitz_dom::BaseDocument, width: u32, height: u32, scale: f32) -> (u32, u32, Vec<u8>, f64, f64) {
     let width = (width as f32 * scale).round() as u32;
     let height = (height as f32 * scale).round() as u32;
     let mut rgba = Vec::with_capacity((width * height * 4) as usize);
     let start = Instant::now();
     let mut scene_ms = 0.0;
-    let mut renderer = VelloCpuImageRenderer::new(width, height);
+    let mut renderer = R::new(width, height);
     renderer.render_to_vec(
         |scene| {
             let at = Instant::now();
