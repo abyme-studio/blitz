@@ -11,3 +11,5 @@ fix/scroll-only-frame
 fix/scene-fragments
 fix/paint-box-calls
 fix/stale-containing-block
+fix/popover-top-layer
+fix/key-activation

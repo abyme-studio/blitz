@@ -125,6 +125,18 @@ impl<E: ScriptEngine> EventHandler for ReactEventHandler<'_, E> {
         let Some(kind) = EVENT_TYPES.iter().position(|t| *t == name) else {
             return;
         };
+        // Blitz's chain holds elements only: an event that reaches the root element goes on to
+        // the document, where `document`'s and `window`'s listeners are.
+        let mut chain = chain.to_vec();
+        {
+            let doc = _doc.inner();
+            let root = doc.root_node();
+            if let Some(&last) = chain.last()
+                && root.children.contains(&last)
+            {
+                chain.push(root.id);
+            }
+        }
         // Only when something in the chain (the document included) listens.
         {
             let s = self.shared.state.borrow();

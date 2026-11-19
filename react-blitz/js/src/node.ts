@@ -4,6 +4,7 @@
 import { encoder, written } from "./bridge";
 import { NS } from "./encoder";
 import * as host from "./host";
+import * as popover from "./popover";
 
 export const nodes = new Map<number, BlitzNode>();
 let nextId = 2;
@@ -220,6 +221,7 @@ export abstract class BlitzNode extends BlitzEventTarget {
     child.parentNode = null;
     encoder.remove(this.rbId, child.rbId);
     written();
+    popover.removed(child);
     return child;
   }
   replaceChildren(...children: (BlitzNode | string)[]): void {
@@ -228,6 +230,38 @@ export abstract class BlitzNode extends BlitzEventTarget {
   }
   remove(): void {
     this.parentNode?.removeChild(this);
+  }
+  /** ChildNode's: each node or string, in order, just before this one. */
+  before(...children: (BlitzNode | string)[]): void {
+    const parent = this.parentNode;
+    if (!parent) return;
+    const placed = children.map((c) => (typeof c === "string" ? new BlitzText(newId(), c) : c));
+    let next: BlitzNode | null = this;
+    if (placed.includes(this)) next = this.followingNotIn(placed);
+    for (const n of placed) parent.insertBefore(n, next);
+  }
+  /** ChildNode's: each node or string, in order, just after this one. */
+  after(...children: (BlitzNode | string)[]): void {
+    const parent = this.parentNode;
+    if (!parent) return;
+    const placed = children.map((c) => (typeof c === "string" ? new BlitzText(newId(), c) : c));
+    const next = this.followingNotIn(placed);
+    for (const n of placed) if (n !== this) parent.insertBefore(n, next);
+  }
+  /** ChildNode's: this node out, and each node or string, in order, where it was. */
+  replaceWith(...children: (BlitzNode | string)[]): void {
+    const parent = this.parentNode;
+    if (!parent) return;
+    const placed = children.map((c) => (typeof c === "string" ? new BlitzText(newId(), c) : c));
+    const next = this.followingNotIn(placed);
+    if (!placed.includes(this)) parent.removeChild(this);
+    for (const n of placed) parent.insertBefore(n, next);
+  }
+  /** The DOM's "viable next sibling": the first sibling after this one that is not being placed. */
+  private followingNotIn(placed: BlitzNode[]): BlitzNode | null {
+    let n = this.nextSibling;
+    while (n && placed.includes(n)) n = n.nextSibling;
+    return n;
   }
   /** Out of its parent, with no op: an append or insert moves it in one op. */
   protected detach(): void {
@@ -702,6 +736,25 @@ export class BlitzElement extends BlitzNode {
   }
   click(): void {
     this.dispatchEvent(new (globalThis as any).MouseEvent("click", { bubbles: true, cancelable: true }));
+  }
+
+  // Popover: Blitz draws an open one in its top layer and matches it by `:popover-open`.
+  get popover(): string | null {
+    const state = popover.popoverState(this);
+    return state === null ? null : state;
+  }
+  set popover(v: string | null) {
+    if (v === null) this.removeAttribute("popover");
+    else this.setAttribute("popover", v);
+  }
+  showPopover(opts?: { source?: BlitzElement }): void {
+    popover.show(this, opts?.source);
+  }
+  hidePopover(): void {
+    popover.hide(this);
+  }
+  togglePopover(force?: boolean | { force?: boolean; source?: BlitzElement }): boolean {
+    return popover.toggle(this, force);
   }
 
   // Pointer capture: Blitz routes a pressed pointer to its target until release already.
