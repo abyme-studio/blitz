@@ -109,6 +109,7 @@ pub fn decode<'a>(ops: &[u8], strings: &'a [u8]) -> Result<Vec<Op<'a>>, DecodeEr
             OpCode::Remove => Op::Remove { parent: args[0], child: args[1] },
             OpCode::Drop => Op::Drop { id: args[0] },
             OpCode::Listen => Op::Listen { id: args[0], event: s(1)?, on: args[2] != 0 },
+            OpCode::Popover => Op::Popover { id: args[0], open: args[1] != 0 },
         });
         at += 1 + op.arity();
     }

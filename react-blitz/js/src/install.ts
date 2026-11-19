@@ -28,6 +28,7 @@ function eventClasses(g: any): void {
   g.TouchEvent = withFields({ ...mods, touches: [], targetTouches: [], changedTouches: [] });
   g.AnimationEvent = withFields({ animationName: "", elapsedTime: 0, pseudoElement: "" });
   g.TransitionEvent = withFields({ propertyName: "", elapsedTime: 0, pseudoElement: "" });
+  g.ToggleEvent = withFields({ oldState: "", newState: "", source: null });
   g.KeyboardEvent.DOM_KEY_LOCATION_STANDARD = 0;
   g.Event.prototype.getModifierState = function (this: any, k: string) {
     return { Shift: this.shiftKey, Control: this.ctrlKey, Alt: this.altKey, Meta: this.metaKey }[k] ?? false;
