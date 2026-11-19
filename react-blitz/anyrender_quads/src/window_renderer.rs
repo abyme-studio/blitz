@@ -99,7 +99,7 @@ impl WindowRenderer for QuadsWindowRenderer {
             return;
         };
         let acquire = step.elapsed();
-        active.gpu.render(active.surface.device(), active.surface.queue(), &self.recording, &view, (width, height), wgpu::Color::WHITE);
+        active.gpu.render(active.surface.device(), active.surface.queue(), &mut self.recording, &view, (width, height), wgpu::Color::WHITE);
         drop(view);
 
         let step = Instant::now();

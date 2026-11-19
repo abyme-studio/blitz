@@ -11,6 +11,7 @@ use bytemuck::{Pod, Zeroable};
 use kurbo::{Affine, Insets, Shape, Stroke};
 use peniko::{BlendMode, Color, Compose, Fill, FontData, Mix, StyleRef};
 
+use crate::atlas::{Atlas, GlyphAsk, Page, SUBPIXELS};
 use crate::frame_times::{self, Encoding};
 
 /// A box: a background, a border, corner radii, under a clip. GPUI's `Quad`, solid colours only.
@@ -58,6 +59,21 @@ pub(crate) struct Sprite {
     pub params: [f32; 4],
 }
 
+/// A glyph or an image from the atlas: its texels drawn over `bounds`, a plain glyph's coverage
+/// tinted by `color`, a colour glyph's or an image's texels at `color`'s alpha.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub(crate) struct AtlasSprite {
+    pub bounds: [f32; 4],
+    pub clip: Clip,
+    /// x, y, width, height in the page's texels.
+    pub uv: [f32; 4],
+    /// Straight sRGB.
+    pub color: [f32; 4],
+    /// 0 coverage (the single-channel page), 1 premultiplied texels; then three of padding.
+    pub params: [f32; 4],
+}
+
 /// Where an instance may draw: inside `rect` and inside the rounded box `round`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable, PartialEq)]
@@ -83,6 +99,8 @@ pub(crate) enum Draw {
     /// An opacity layer, by its index in [`Recording::layers`]: drawn into a texture of its own,
     /// then composited by its sprite.
     Layer { layer: usize, sprite: u32 },
+    /// Glyphs and images, all from one page or one image's own texture.
+    Sprites { range: std::ops::Range<u32>, page: Page },
 }
 
 #[derive(Debug, Default)]
@@ -96,12 +114,16 @@ pub(crate) struct Recording {
     pub quads: Vec<Quad>,
     pub shadows: Vec<Shadow>,
     pub sprites: Vec<Sprite>,
+    pub atlas_sprites: Vec<AtlasSprite>,
     pub layers: Vec<Layer>,
     pub root: Vec<Draw>,
+    /// Kept from frame to frame: only the instances above are the frame's.
+    pub atlas: Atlas,
 }
 
 impl Recording {
     pub(crate) fn clear(&mut self) {
+        self.atlas_sprites.clear();
         self.quads.clear();
         self.shadows.clear();
         self.sprites.clear();
@@ -131,6 +153,7 @@ pub struct QuadsScenePainter<'r> {
 impl<'r> QuadsScenePainter<'r> {
     pub(crate) fn new(recording: &'r mut Recording, width: u32, height: u32) -> Self {
         recording.clear();
+        recording.atlas.begin_frame();
         Self {
             recording,
             open: vec![Vec::new()],
@@ -175,6 +198,19 @@ impl<'r> QuadsScenePainter<'r> {
         match self.draws().last_mut() {
             Some(Draw::Shadows(range)) if range.end == index => range.end += 1,
             _ => self.draws().push(Draw::Shadows(index..index + 1)),
+        }
+    }
+
+    fn add_sprite(&mut self, sprite: AtlasSprite, page: Page) {
+        if !visible(&sprite.bounds, &self.clip) {
+            return;
+        }
+        let index = self.recording.atlas_sprites.len() as u32;
+        self.recording.atlas_sprites.push(sprite);
+        frame_times::add(|t| t.sprites += 1);
+        match self.draws().last_mut() {
+            Some(Draw::Sprites { range, page: p }) if range.end == index && *p == page => range.end += 1,
+            _ => self.draws().push(Draw::Sprites { range: index..index + 1, page }),
         }
     }
 
@@ -412,25 +448,68 @@ impl PaintScene for QuadsScenePainter<'_> {
 
     fn draw_glyphs<'a, 's: 'a>(
         &'a mut self,
-        _font: &'a FontData,
-        _font_size: f32,
-        _hint: bool,
-        _normalized_coords: &'a [NormalizedCoord],
-        _embolden: kurbo::Vec2,
-        _style: impl Into<StyleRef<'a>>,
-        _paint: impl Into<PaintRef<'a>>,
-        _brush_alpha: f32,
-        _transform: Affine,
-        _glyph_transform: Option<Affine>,
+        font: &'a FontData,
+        font_size: f32,
+        hint: bool,
+        normalized_coords: &'a [NormalizedCoord],
+        embolden: kurbo::Vec2,
+        style: impl Into<StyleRef<'a>>,
+        paint: impl Into<PaintRef<'a>>,
+        brush_alpha: f32,
+        transform: Affine,
+        glyph_transform: Option<Affine>,
         glyphs: impl Iterator<Item = anyrender::Glyph> + Clone,
         _anti_aliasing: AntiAliasing,
     ) {
-        let count = glyphs.count() as u32;
+        let _encoding = Encoding::start();
+        let count = glyphs.clone().count() as u32;
         frame_times::add(|t| {
             t.glyph_runs += 1;
             t.glyphs += count;
         });
-        left_out("glyphs");
+        if !matches!(style.into(), StyleRef::Fill(_)) {
+            left_out("stroked glyphs");
+            return;
+        }
+        let Paint::Solid(color) = paint.into() else {
+            left_out("glyphs not of one colour");
+            return;
+        };
+        let Some((sx, sy, tx, ty)) = axis_aligned(transform) else { return };
+        if (sx - sy).abs() > 1e-6 {
+            left_out("glyphs scaled unevenly");
+            return;
+        }
+        let mut color = rgba(color);
+        color[3] *= brush_alpha;
+        let clip = self.clip;
+        let skew = glyph_transform.filter(|g| *g != Affine::IDENTITY);
+        for glyph in glyphs {
+            // The pen in device pixels: a whole pixel down, a quarter pixel across, as GPUI.
+            let x = glyph.x as f64 * sx + tx;
+            let y = (glyph.y as f64 * sy + ty).round();
+            let mut whole = x.floor();
+            let mut subpixel = ((x - whole) * SUBPIXELS).round();
+            if subpixel >= SUBPIXELS {
+                whole += 1.0;
+                subpixel = 0.0;
+            }
+            let ask = GlyphAsk {
+                font,
+                glyph: glyph.id,
+                size: (font_size as f64 * sx) as f32,
+                coords: normalized_coords,
+                embolden: embolden * sx,
+                skew,
+                hint,
+                subpixel: subpixel as u8,
+            };
+            let Some(entry) = self.recording.atlas.glyph(&ask) else { continue };
+            let bounds = [whole as f32 + entry.offset[0], y as f32 + entry.offset[1], entry.uv[2], entry.uv[3]];
+            let colored = entry.page != Page::Mono;
+            let tint = if colored { [1.0, 1.0, 1.0, color[3]] } else { color };
+            self.add_sprite(AtlasSprite { bounds, clip, uv: entry.uv, color: tint, params: [colored as u32 as f32, 0.0, 0.0, 0.0] }, entry.page);
+        }
     }
 
     fn draw_box_shadow(
@@ -499,7 +578,13 @@ impl PaintScene for QuadsScenePainter<'_> {
         self.pushed.push(Pushed::Clip(before));
     }
 
-    fn draw_image(&mut self, _image: peniko::ImageBrushRef, _transform: Affine) {
-        left_out("an image");
+    fn draw_image(&mut self, image: peniko::ImageBrushRef, transform: Affine) {
+        let _encoding = Encoding::start();
+        let Some((sx, sy, tx, ty)) = axis_aligned(transform) else { return };
+        let Some(entry) = self.recording.atlas.image(image.image) else { return };
+        let bounds = [tx as f32, ty as f32, (image.image.width as f64 * sx) as f32, (image.image.height as f64 * sy) as f32];
+        let clip = self.clip;
+        let alpha = image.sampler.alpha;
+        self.add_sprite(AtlasSprite { bounds, clip, uv: entry.uv, color: [1.0, 1.0, 1.0, alpha], params: [1.0, 0.0, 0.0, 0.0] }, entry.page);
     }
 }
