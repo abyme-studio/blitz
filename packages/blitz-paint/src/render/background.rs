@@ -383,7 +383,7 @@ impl ElementCx<'_, '_> {
         }
     }
 
-    fn draw_solid_bg(&self, scene: &mut impl PaintScene, shape: &impl Shape) {
+    fn draw_solid_bg(&self, scene: &mut impl PaintScene, shape: &NonUniformRoundedRect) {
         let current_color = self.style.clone_color();
         let background_color = &self.style.get_background().background_color;
         let bg_color = background_color
@@ -391,15 +391,7 @@ impl ElementCx<'_, '_> {
             .as_srgb_color();
 
         if bg_color != Color::TRANSPARENT {
-            // Fill the color
-            scene.fill(
-                Fill::NonZero,
-                self.transform,
-                bg_color,
-                None,
-                shape,
-                AntiAliasing::Enabled,
-            );
+            scene.fill_box(self.transform, bg_color, shape);
         }
     }
 
