@@ -616,6 +616,10 @@ impl DocumentMutator<'_> {
         self.process_removed_subtree(node_id);
 
         let node = &mut self.doc.nodes[node_id];
+        // Out of the tree, its last layout's parent and containing block are stale, and may be
+        // dropped before it is laid out again: every walk up them would hit a freed id.
+        node.layout_parent.set(None);
+        node.oof_containing_block.set(None);
 
         // Update child_idx values
         if let Some(parent_id) = node.parent.take() {
