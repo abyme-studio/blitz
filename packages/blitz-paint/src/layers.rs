@@ -1,4 +1,4 @@
-use anyrender::{Filter, PaintScene};
+use anyrender::{Filter, NonUniformRoundedRect, PaintScene};
 use kurbo::{Affine, Shape};
 use peniko::{BlendMode, Fill};
 use std::{cell::Cell, sync::Arc};
@@ -91,6 +91,31 @@ impl LayerManager {
         self.layer_depth.update(|x| x.max(self.layer_depth.get()));
 
         true
+    }
+
+    /// [`Self::maybe_with_layer`] for an overflow clip: a clip to a box, pushed with
+    /// `PaintScene::push_box_clip` so a back end may clip to the box itself.
+    pub(crate) fn maybe_with_box_clip<S: PaintScene, F: FnOnce(&mut S)>(
+        &self,
+        scene: &mut S,
+        condition: bool,
+        transform: Affine,
+        shape: &NonUniformRoundedRect,
+        paint_layer: F,
+    ) {
+        let mut used = false;
+        if condition {
+            self.layers_wanted.update(|x| x + 1);
+            if self.layers_used.get() <= LAYER_LIMIT {
+                scene.push_box_clip(transform, shape);
+                self.layers_used.update(|x| x + 1);
+                self.layer_depth.update(|x| x + 1);
+                self.layer_depth.update(|x| x.max(self.layer_depth.get()));
+                used = true;
+            }
+        }
+        paint_layer(scene);
+        self.maybe_pop_layer(scene, used);
     }
 
     pub(crate) fn maybe_pop_layer(&self, scene: &mut impl PaintScene, condition: bool) {
