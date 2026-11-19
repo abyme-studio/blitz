@@ -98,7 +98,8 @@ pub struct Counts {
     pub fragments_built: u32,
     /// Scroll containers whose content was drawn from what an earlier frame built.
     pub fragments_kept: u32,
-    /// On the quads back end: instances drawn (quads and shadows), its draw calls, and the
+    /// On the quads back end (where `glyph_outlines` is the glyphs its atlas rasterized):
+    /// instances drawn (quads, shadows and sprites), its draw calls, and the
     /// painter calls it left out. 0 on Vello.
     pub quads: u32,
     pub draws: u32,
