@@ -55,7 +55,7 @@ impl ImageRenderer for QuadsImageRenderer {
         self.gpu.render(
             self.buffer_renderer.device(),
             self.buffer_renderer.queue(),
-            &self.recording,
+            &mut self.recording,
             &view,
             (size.width, size.height),
             wgpu::Color::TRANSPARENT,
