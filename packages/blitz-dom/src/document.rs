@@ -3950,3 +3950,49 @@ mod change_tracking_tests {
         assert!(doc.has_changes());
     }
 }
+
+#[cfg(test)]
+mod stale_containing_block_tests {
+    use super::*;
+    use crate::{Attribute, qual_name};
+    use blitz_traits::shell::ColorScheme;
+
+    /// A node taken out of its parent keeps the `layout_parent` of its last layout. Once that
+    /// parent is dropped, measuring the detached node walks into a freed id. A browser answers
+    /// a detached element's `getBoundingClientRect` with a zero rect; this must not panic.
+    #[test]
+    fn a_detached_node_whose_parent_was_dropped_measures_without_panicking() {
+        let mut doc = BaseDocument::new(DocumentConfig {
+            viewport: Some(Viewport::new(400, 300, 1.0, ColorScheme::Light)),
+            ..Default::default()
+        });
+        let root_id = doc.root_node().id;
+        let style = |value: &str| Attribute {
+            name: qual_name!("style"),
+            value: value.to_string(),
+        };
+        let mut mutator = doc.mutate();
+        let html = mutator.create_element(qual_name!("html"), vec![]);
+        let body = mutator.create_element(qual_name!("body"), vec![style("margin:0")]);
+        let outer = mutator.create_element(qual_name!("div"), vec![style("padding:10px")]);
+        let inner = mutator.create_element(qual_name!("div"), vec![style("height:20px")]);
+        mutator.append_children(outer, &[inner]);
+        mutator.append_children(body, &[outer]);
+        mutator.append_children(html, &[body]);
+        mutator.append_children(root_id, &[html]);
+        drop(mutator);
+        doc.resolve(0.0);
+        assert_eq!(doc.nodes[inner].containing_block(), Some(outer));
+
+        let mut mutator = doc.mutate();
+        mutator.remove_node(inner);
+        mutator.remove_and_drop_node(outer);
+        drop(mutator);
+        doc.resolve(0.0);
+
+        assert!(doc.get_node(outer).is_none());
+        let rect = doc.get_client_bounding_rect(inner);
+        assert!(rect.is_some_and(|r| r.x == 0.0 && r.y == 0.0));
+        assert_eq!(doc.nodes[inner].containing_block(), None);
+    }
+}
