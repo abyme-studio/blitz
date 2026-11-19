@@ -12,3 +12,4 @@ fix/scene-fragments
 fix/stale-containing-block
 fix/popover-top-layer
 fix/key-activation
+fix/placeholder
