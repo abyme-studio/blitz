@@ -46,6 +46,10 @@ To see the fixes: `diff -r ~/.cargo/registry/src/*/stylo-0.24.0 vendor/stylo`.
   the third draws it again under a transform, in a later frame too. Each is a provided method
   that answers no, so a back end without them draws as before. blitz-paint keeps a scroll
   container's content with them (`fix/scene-fragments`, `keep_fragments`).
+- `lib.rs`: `PaintScene` has `fill_box`, `draw_border` and `push_box_clip`: a rounded box
+  filled, a solid one-colour border, and a clip to a rounded box. Each is a provided method that
+  makes today's path calls, so Vello's pixels are unchanged; a back end that draws boxes as
+  quads takes them whole. blitz-paint calls them (`fix/paint-box-calls`).
 
 To see the fixes: `diff -r ~/.cargo/registry/src/*/anyrender-0.15.0 vendor/anyrender`.
 
