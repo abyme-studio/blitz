@@ -33,6 +33,9 @@ pub struct FrameTimes {
     pub images_added: u32,
     /// Glyph and image sprites drawn.
     pub sprites: u32,
+    /// Drawings rasterized on the CPU into the atlas, new this frame, and layers recorded for it.
+    pub cpu_added: u32,
+    pub cpu_layers: u32,
     /// Pages emptied because one filled.
     pub atlas_resets: u32,
     /// What was not drawn, by kind, and how often.
