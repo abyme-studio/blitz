@@ -1,0 +1,17 @@
+[package]
+name = "anyrender_quads"
+description = "A drawing back end for anyrender of instanced quads on wgpu, as GPUI draws: boxes, borders, shadows and clips as quads, one render pass a frame"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyrender = "0.15.0"
+kurbo = "0.13.1"
+peniko = "0.6"
+wgpu = "30"
+wgpu_context = "0.11.0"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "1.0"
