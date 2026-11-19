@@ -281,6 +281,10 @@ pub struct BaseDocument {
     pub(crate) drag_mode: DragMode,
     /// The scrollbar thumb currently under the pointer, if any
     pub(crate) hovered_scrollbar: Option<crate::node::ScrollbarRef>,
+    /// The top layer: open popovers, in the order they were shown. Each is painted and hit
+    /// above everything else, outside every ancestor's clip.
+    /// <https://html.spec.whatwg.org/multipage/popover.html#top-layer>
+    pub(crate) top_layer: Vec<NodeId>,
     /// When each scroll container's overlay scrollbars were last shown
     /// (scrolled, or the pointer left the thumb); drives their fade-out
     pub(crate) scrollbar_activity: HashMap<NodeId, Instant>,
@@ -528,6 +532,7 @@ impl BaseDocument {
             click_count: 0,
             drag_mode: DragMode::None,
             hovered_scrollbar: None,
+            top_layer: Vec::new(),
             scrollbar_activity: HashMap::new(),
             scroll_animation: ScrollAnimationState::None,
             pending_events: VecDeque::new(),
@@ -862,6 +867,41 @@ impl BaseDocument {
         self.shell_provider.request_redraw();
     }
 
+    /// Show a popover: it matches `:popover-open` and joins the top of the top layer. The
+    /// caller (the page's `showPopover`) checks its `popover` attribute and fires its events.
+    pub fn show_popover(&mut self, node_id: NodeId) {
+        if !self.nodes.contains_key(node_id) || self.top_layer.contains(&node_id) {
+            return;
+        }
+        self.snapshot_node_and(node_id, ElementState::POPOVER_OPEN, |node| {
+            node.element_state_mut().insert(ElementState::POPOVER_OPEN)
+        });
+        self.top_layer.push(node_id);
+        self.shell_provider.request_redraw();
+    }
+
+    /// Hide a popover: it leaves the top layer and no longer matches `:popover-open`.
+    pub fn hide_popover(&mut self, node_id: NodeId) {
+        let Some(at) = self.top_layer.iter().position(|&id| id == node_id) else {
+            return;
+        };
+        self.top_layer.remove(at);
+        if self.nodes.contains_key(node_id) {
+            self.snapshot_node_and(node_id, ElementState::POPOVER_OPEN, |node| {
+                node.element_state_mut().remove(ElementState::POPOVER_OPEN)
+            });
+        }
+        self.shell_provider.request_redraw();
+    }
+
+    /// The top layer, bottom first: open popovers still in the document and rendered.
+    pub fn top_layer(&self) -> impl DoubleEndedIterator<Item = NodeId> + '_ {
+        self.top_layer
+            .iter()
+            .copied()
+            .filter(|&id| self.nodes.get(id).is_some_and(|node| node.is_in_top_layer()))
+    }
+
     pub fn set_style_property(&mut self, node_id: NodeId, name: &str, value: &str) {
         let node = &mut self.nodes[node_id];
         let did_change = node.element_data_mut().unwrap().set_style_property(
@@ -1107,6 +1147,8 @@ impl BaseDocument {
         let mut node = self.remove_node_from_tree(node_id);
         if let Some(node) = &mut node {
             on_drop(node_id);
+            // A dropped popover leaves the top layer, so its id can be used again.
+            self.top_layer.retain(|&id| id != node_id);
             if let Some(before) = node.before() {
                 self.drop_node_ignoring_parent_with(before, on_drop);
             }
@@ -2019,9 +2061,21 @@ impl BaseDocument {
             return (None, None);
         }
         let mut scrollbar = None;
-        let hit = self
-            .root_element()
-            .hit_inner(x, y, self.viewport().scale_f64(), &mut scrollbar);
+        let root = self.root_element();
+        let scale = self.viewport().scale_f64();
+        // The top layer is above everything: its topmost box under the point wins.
+        let visual = root.final_layout().location;
+        let (root_x, root_y) = (
+            x - visual.x + root.scroll_offset().x as f32,
+            y - visual.y + root.scroll_offset().y as f32,
+        );
+        for id in self.top_layer().rev() {
+            let at = crate::layout::paint_tree::hoisted_child_position(self.tree(), root.id, id);
+            if let Some(hit) = self.nodes[id].hit_inner(root_x - at.x, root_y - at.y, scale, &mut scrollbar) {
+                return (Some(hit), scrollbar);
+            }
+        }
+        let hit = root.hit_inner(x, y, scale, &mut scrollbar);
         (hit, scrollbar)
     }
 
