@@ -1162,6 +1162,31 @@ impl Node {
         matches!(self.data, NodeData::AnonymousBlock { .. })
     }
 
+    /// Whether this box is in the top layer (an open popover, in the document and rendered): it
+    /// is painted and hit there, above everything, not where it sits in the tree.
+    pub fn is_in_top_layer(&self) -> bool {
+        use style::values::computed::Display;
+        if !self.element_state().contains(ElementState::POPOVER_OPEN) || !self.flags.is_in_document() {
+            return false;
+        }
+        let shown = |node: &Node| {
+            node.primary_styles()
+                .is_some_and(|style| style.get_box().display != Display::None)
+        };
+        if !shown(self) {
+            return false;
+        }
+        let mut parent = self.parent;
+        while let Some(id) = parent {
+            let node = self.with(id);
+            if node.is_element() && !shown(node) {
+                return false;
+            }
+            parent = node.parent;
+        }
+        true
+    }
+
     pub fn is_text_node(&self) -> bool {
         matches!(self.data, NodeData::Text { .. })
     }
@@ -1654,6 +1679,9 @@ impl Node {
                     let Some(child) = self.tree().get(hoisted_child.node_id) else {
                         continue;
                     };
+                    if child.is_in_top_layer() {
+                        continue;
+                    }
                     let pos = hoisted_child.position(self.tree(), self.id);
                     let x = x - pos.x;
                     let y = y - pos.y;
@@ -1669,6 +1697,9 @@ impl Node {
             let Some(child) = self.tree().get(*child_id) else {
                 continue;
             };
+            if child.is_in_top_layer() {
+                continue;
+            }
             let child_position = child.taffy_position();
             let mut child_x = x;
             let mut child_y = y;
@@ -1700,6 +1731,9 @@ impl Node {
                     let Some(child) = self.tree().get(hoisted_child.node_id) else {
                         continue;
                     };
+                    if child.is_in_top_layer() {
+                        continue;
+                    }
                     let pos = hoisted_child.position(self.tree(), self.id);
                     let x = x - pos.x;
                     let y = y - pos.y;
