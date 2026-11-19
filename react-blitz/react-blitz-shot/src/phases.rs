@@ -98,12 +98,6 @@ pub struct Counts {
     pub fragments_built: u32,
     /// Scroll containers whose content was drawn from what an earlier frame built.
     pub fragments_kept: u32,
-    /// On the quads back end (where `glyph_outlines` is the glyphs its atlas rasterized):
-    /// instances drawn (quads, shadows and sprites), its draw calls, and the
-    /// painter calls it left out. 0 on Vello.
-    pub quads: u32,
-    pub draws: u32,
-    pub left_out: u32,
 }
 
 impl Counts {
@@ -130,9 +124,6 @@ impl Counts {
             "glyphOutlines": self.glyph_outlines,
             "fragmentsBuilt": self.fragments_built,
             "fragmentsKept": self.fragments_kept,
-            "quads": self.quads,
-            "draws": self.draws,
-            "leftOut": self.left_out,
         })
     }
 }
@@ -150,10 +141,6 @@ impl fmt::Display for Counts {
             self.glyph_outlines,
             self.fragments_built,
             self.fragments_kept
-        )?;
-        if self.quads > 0 || self.left_out > 0 {
-            write!(f, ", quads {}, draws {}, left out {}", self.quads, self.draws, self.left_out)?;
-        }
-        Ok(())
+        )
     }
 }

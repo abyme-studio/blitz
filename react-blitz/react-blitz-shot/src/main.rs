@@ -1,9 +1,8 @@
 //! `react-blitz-shot <dist> <query> <out.png> --size WxH --scale N [--scheme light|dark]
-//! [--page index.html] [--timeout SECONDS] [--boxes boxes.json] [--renderer cpu|gpu|quads]
+//! [--page index.html] [--timeout SECONDS] [--boxes boxes.json] [--renderer cpu|gpu]
 //! [--frames N --scroll PX [--fragments]]`
 //!
-//! `--renderer` paints with Vello's CPU renderer (the default), its GPU renderer, or the quads back
-//! end.
+//! `--renderer` paints with Vello's CPU renderer (the default) or its GPU renderer.
 //!
 //! With `--frames`: the page scrolled by a wheel of `--scroll` CSS pixels (down when positive)
 //! before each of N frames, each painted whole with no window; each frame's scene and raster ms, the
@@ -22,7 +21,7 @@ use react_blitz_shot::{Raster, Shot, boxes_json, median, scroll_frames, shoot_on
 
 const USAGE: &str = "usage: react-blitz-shot <dist> <query> <out.png> --size WxH --scale N \
 [--scheme light|dark] [--page index.html] [--timeout SECONDS] [--boxes boxes.json] \
-[--renderer cpu|gpu|quads] [--frames N --scroll PX [--fragments]]";
+[--renderer cpu|gpu] [--frames N --scroll PX [--fragments]]";
 
 fn main() -> ExitCode {
     match run() {
@@ -68,8 +67,7 @@ fn run() -> anyhow::Result<()> {
                 raster = match value("--renderer")?.as_str() {
                     "cpu" => Raster::Cpu,
                     "gpu" => Raster::Gpu,
-                    "quads" => Raster::Quads,
-                    other => bail!("--renderer is cpu, gpu or quads, not {other}"),
+                    other => bail!("--renderer is cpu or gpu, not {other}"),
                 }
             }
             "--fragments" => blitz_paint::keep_fragments(true),
@@ -102,9 +100,6 @@ fn run() -> anyhow::Result<()> {
                 t.glyph_outlines,
                 t.text_layouts
             );
-            if raster == Raster::Quads {
-                println!("  quads: instances {}, draws {}, left out {}, glyphs added {}, cpu added {}", t.instances, t.draws, t.left_out, t.glyphs_added, t.cpu_added);
-            }
         }
         println!(
             "median of {}: scene {:.2} ms, raster {:.2} ms",

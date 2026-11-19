@@ -14,7 +14,6 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, bail};
 use anyrender::{AntiAliasing, ImageRenderer, PaintScene as _};
 use anyrender_vello::VelloImageRenderer;
-use anyrender_quads::QuadsImageRenderer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use blitz_dom::util::Color;
 use blitz_dom::{Document as _, DocumentConfig};
@@ -80,7 +79,7 @@ pub fn shoot(shot: &Shot) -> anyhow::Result<Image> {
     shoot_on(shot, Raster::Cpu)
 }
 
-/// [`shoot`], painted by `raster`: Vello's CPU or GPU renderer, or the quads back end.
+/// [`shoot`], painted by `raster`: Vello's CPU or GPU renderer.
 pub fn shoot_on(shot: &Shot, raster: Raster) -> anyhow::Result<Image> {
     let (mut doc, _) = open(shot)?;
     let boxes = laid_boxes(&*doc.inner());
@@ -88,7 +87,6 @@ pub fn shoot_on(shot: &Shot, raster: Raster) -> anyhow::Result<Image> {
     let (width, height, rgba, _, _) = match raster {
         Raster::Cpu => paint_on::<VelloCpuImageRenderer>(&mut inner, shot.width, shot.height, shot.scale),
         Raster::Gpu => paint_on::<VelloImageRenderer>(&mut inner, shot.width, shot.height, shot.scale),
-        Raster::Quads => paint_on::<QuadsImageRenderer>(&mut inner, shot.width, shot.height, shot.scale),
     };
     Ok(Image { width, height, rgba, boxes })
 }
@@ -152,33 +150,22 @@ pub struct ScrollFrame {
     pub glyph_outlines: u32,
     /// Inline layouts (Parley's) built since the frame before.
     pub text_layouts: u32,
-    /// On the quads back end: instances drawn (quads, shadows, sprites), its draw calls, and the
-    /// painter calls it left out. 0 on Vello.
-    pub instances: u32,
-    pub draws: u32,
-    pub left_out: u32,
-    /// On the quads back end: glyphs rasterized into its atlas this frame, and drawings the CPU
-    /// rasterized into it.
-    pub glyphs_added: u32,
-    pub cpu_added: u32,
 }
 
-/// What paints an offscreen frame: Vello's CPU renderer, its GPU one, or the quads back end.
+/// What paints an offscreen frame: Vello's CPU renderer or its GPU one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Raster {
     Cpu,
     Gpu,
-    Quads,
 }
 
 /// The page scrolled by a wheel of `scroll` CSS pixels (down when positive) at its middle before
 /// each of `frames` frames, each painted whole with no window by one renderer kept between them:
-/// Vello's on the GPU or the CPU, or the quads back end. Answers each frame's times and the last frame.
+/// Vello's on the GPU or the CPU. Answers each frame's times and the last frame.
 pub fn scroll_frames(shot: &Shot, frames: usize, scroll: f64, raster: Raster) -> anyhow::Result<(Vec<ScrollFrame>, Image)> {
     match raster {
         Raster::Cpu => scroll_with::<VelloCpuImageRenderer>(shot, frames, scroll),
         Raster::Gpu => scroll_with::<VelloImageRenderer>(shot, frames, scroll),
-        Raster::Quads => scroll_with::<QuadsImageRenderer>(shot, frames, scroll),
     }
 }
 
@@ -275,18 +262,12 @@ impl<R: ImageRenderer> Offscreen<R> {
             &mut self.rgba,
         );
         self.renderer.reset();
-        let quads = anyrender_quads::take_frame_times();
         ScrollFrame {
             scene: scene_ms,
             raster: start.elapsed().as_secs_f64() * 1000.0 - scene_ms,
             fragments: blitz_paint::take_fragment_stats(),
             glyph_outlines: anyrender_vello::take_frame_times().glyph_outlines,
             text_layouts,
-            instances: quads.quads + quads.shadows,
-            draws: quads.draws,
-            left_out: quads.left_out.values().sum(),
-            glyphs_added: quads.glyphs_added,
-            cpu_added: quads.cpu_added,
         }
     }
 
