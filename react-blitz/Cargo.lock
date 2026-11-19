@@ -127,6 +127,7 @@ name = "anyrender_quads"
 version = "0.1.0"
 dependencies = [
  "anyrender",
+ "anyrender_vello_cpu",
  "bytemuck",
  "etagere",
  "glifo",

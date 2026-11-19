@@ -396,6 +396,9 @@ impl Gpu {
 impl Gpu {
     /// Writes the atlas's new texels, making a texture for each new image that has its own.
     fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, recording: &mut Recording) {
+        for id in recording.atlas.freed.drain(..) {
+            self.images.remove(&id);
+        }
         for upload in recording.atlas.uploads.drain(..) {
             let [x, y, w, h] = upload.rect;
             if w == 0 || h == 0 {
