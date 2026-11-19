@@ -26,6 +26,8 @@ pub enum OpCode {
     Drop = 11,
     /// `id event on`: whether the node's props have a handler for `event` (`on` is 1 or 0)
     Listen = 12,
+    /// `id open`: show the popover (`open` 1), into the top layer, or hide it (0)
+    Popover = 13,
 }
 
 impl OpCode {
@@ -44,6 +46,7 @@ impl OpCode {
             10 => Remove,
             11 => Drop,
             12 => Listen,
+            13 => Popover,
             _ => return None,
         })
     }
@@ -53,7 +56,7 @@ impl OpCode {
         use OpCode::*;
         match self {
             Drop => 1,
-            RemoveAttr | RemoveStyle | Append | Remove | CreateText | SetText => 2,
+            RemoveAttr | RemoveStyle | Append | Remove | CreateText | SetText | Popover => 2,
             CreateElement | SetAttr | SetStyle | InsertBefore | Listen => 3,
         }
     }
@@ -83,4 +86,5 @@ pub enum Op<'a> {
     Remove { parent: u32, child: u32 },
     Drop { id: u32 },
     Listen { id: u32, event: &'a str, on: bool },
+    Popover { id: u32, open: bool },
 }

@@ -193,6 +193,17 @@ impl Tree {
                     _ => {}
                 }
             }
+            Op::Popover { id, open } => {
+                // A dropped node is out of the top layer already.
+                if !open && self.node(id).is_none() {
+                    return Ok(());
+                }
+                let node = self.get(id, index)?;
+                match open {
+                    true => m.doc.show_popover(node),
+                    false => m.doc.hide_popover(node),
+                }
+            }
         }
         Ok(())
     }
