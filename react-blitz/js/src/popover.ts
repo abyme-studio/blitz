@@ -69,13 +69,19 @@ function sendOpen(el: BlitzElement, on: boolean): void {
   written();
 }
 
-/** The nearest open auto popover holding `node`, by the tree or by an invoker, itself included. */
+/** The nearest open auto popover holding `node`, by the tree or by an invoker, itself included; an
+ * invoker of an open one counts as in it. */
 function popoverAncestor(node: BlitzNode | null): BlitzElement | null {
   const seen = new Set<BlitzNode>();
   for (let n: BlitzNode | null = node; n && !seen.has(n); ) {
     seen.add(n);
     const el = n as BlitzElement;
     if (autoStack.includes(el)) return el;
+    // An invoker counts as inside the popover it showed, so a click on an open menu's trigger
+    // leaves the menu to the trigger's own click.
+    for (let i = autoStack.length - 1; i >= 0; i--) {
+      if (invokers.get(autoStack[i]!) === el) return autoStack[i]!;
+    }
     const invoker = invokers.get(el);
     n = invoker ?? n.parentNode;
   }
